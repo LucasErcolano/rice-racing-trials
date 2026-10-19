@@ -8,8 +8,11 @@ from zipfile import ZipFile
 from timing.audit import analyze_archive, classify_native_fix
 
 ROOT = Path(__file__).resolve().parents[1]
+SOURCES = ROOT / 'assets/source'
+HAVE_SOURCES = (SOURCES / 'FSAEJ_Endurance.zip').is_file() and (SOURCES / 'FSAEJ_Skidpad.zip').is_file()
 
 
+@unittest.skipUnless(HAVE_SOURCES, 'JSAE track archives are proprietary and gitignored (assets/source); not present in CI')
 class NativeTimingTests(unittest.TestCase):
     def test_endurance_spawn_before_timing_line_not_correction(self):
         result = analyze_archive(ROOT / 'assets/source/FSAEJ_Endurance.zip', 'FSAEJ_Endurance')

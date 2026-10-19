@@ -190,7 +190,7 @@ class Persistence(Harness):
         for _ in range(3):
             app.migrate(self.db)
         self.start()
-        with sqlite3.connect(self.db) as db:
+        with contextlib.closing(sqlite3.connect(self.db)) as db, db:
             self.assertEqual(db.execute('PRAGMA user_version').fetchone()[0], app.SCHEMA_VERSION)
             self.assertEqual(db.execute('PRAGMA journal_mode').fetchone()[0], 'wal')
             self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
@@ -201,7 +201,7 @@ class Persistence(Harness):
     def test_legacy_unversioned_database_is_migrated(self):
         self.stop()
         legacy = Path(self.tmp.name) / 'legacy.sqlite'
-        with sqlite3.connect(legacy) as db:
+        with contextlib.closing(sqlite3.connect(legacy)) as db, db:
             db.executescript('''
                 CREATE TABLE sessions (session_id TEXT PRIMARY KEY, name TEXT NOT NULL);
                 CREATE TABLE reviews (id INTEGER PRIMARY KEY AUTOINCREMENT, station_id TEXT NOT NULL, lap_id TEXT NOT NULL, session_id TEXT NOT NULL, reviewer TEXT NOT NULL, decision TEXT NOT NULL, reason TEXT NOT NULL, before_status TEXT NOT NULL, after_status TEXT NOT NULL, created_utc TEXT NOT NULL);

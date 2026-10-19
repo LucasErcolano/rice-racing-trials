@@ -115,27 +115,27 @@ class ValidationReportTests(unittest.TestCase):
     def test_cli_writes_markdown_and_html(self):
         diag = self.jsonl(session())
         out = self.dir / 'out/report.md'
-        run = subprocess.run([sys.executable, '-I', str(ROOT / 'tools/validation.py'), 'report', '--diagnostics',
+        run = subprocess.run([sys.executable, '-I', '-X', 'utf8', str(ROOT / 'tools/validation.py'), 'report', '--diagnostics',
                               str(diag), '--server-export', str(self.json('e.json', export())), '--output', str(out)],
-                             capture_output=True, text=True, timeout=60)
+                             capture_output=True, text=True, encoding='utf-8', timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertIn('## Funciones verificadas', out.read_text(encoding='utf-8'))
         page = out.with_suffix('.html').read_text(encoding='utf-8')
         self.assertIn('DATOS SINTÉTICOS', page)
         self.assertNotIn('<script', page)
         checklist = self.dir / 'checklist.json'
-        run = subprocess.run([sys.executable, '-I', str(ROOT / 'tools/validation.py'), 'checklist', '--output',
-                              str(checklist)], capture_output=True, text=True, timeout=60)
+        run = subprocess.run([sys.executable, '-I', '-X', 'utf8', str(ROOT / 'tools/validation.py'), 'checklist', '--output',
+                              str(checklist)], capture_output=True, text=True, encoding='utf-8', timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr)
-        run = subprocess.run([sys.executable, '-I', str(ROOT / 'tools/validation.py'), 'checklist', '--output',
-                              str(checklist)], capture_output=True, text=True, timeout=60)
+        run = subprocess.run([sys.executable, '-I', '-X', 'utf8', str(ROOT / 'tools/validation.py'), 'checklist', '--output',
+                              str(checklist)], capture_output=True, text=True, encoding='utf-8', timeout=60)
         self.assertEqual(run.returncode, 2, 'checklist must not overwrite operator notes')
 
     def test_inventory_backward_compatible_flag(self):
         root = self.dir / 'ac'
         (root / 'content/tracks').mkdir(parents=True)
-        run = subprocess.run([sys.executable, '-I', str(ROOT / 'tools/validation.py'), '--assetto-root', str(root)],
-                             capture_output=True, text=True, timeout=60)
+        run = subprocess.run([sys.executable, '-I', '-X', 'utf8', str(ROOT / 'tools/validation.py'), '--assetto-root', str(root)],
+                             capture_output=True, text=True, encoding='utf-8', timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr)
         self.assertFalse(json.loads(run.stdout)['ready'])
 
