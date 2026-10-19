@@ -7,6 +7,7 @@ local queue, nonce, nextId = core.pending_queue(), nil, 1
 local blocked, endpoint, station, token, assignment, frozen = false, nil, nil, nil, nil, nil
 local sending, fetching, heartbeat, retryClock, heartbeatClock = false, false, false, 0, 0
 local bootAttempted = false
+local lapNumbers, lastResetCounter = {}, nil
 local function autostart()
   if bootAttempted then return end
   bootAttempted = true
@@ -36,7 +37,7 @@ end
 local function persist()
   if not ac or not ac.storage or not JSON or not JSON.stringify then
     return fail('STORAGE_UNAVAILABLE / REVIEW_NOT_DURABLE') end
-  local ok, serialized = pcall(JSON.stringify, {version=1, nonce=nonce, next_id=nextId, entries=queue.entries})
+  local ok, serialized = pcall(JSON.stringify, {version=1, nonce=nonce, next_id=nextId, entries=queue.entries, lap_numbers=lapNumbers})
   if not ok or type(serialized) ~= 'string' then return fail('STORAGE_UNAVAILABLE / REVIEW_NOT_DURABLE') end
   ok = pcall(function() ac.storage[storageKey] = serialized end)
   if not ok or ac.storage[storageKey] ~= serialized then return fail('STORAGE_UNVERIFIED / REVIEW_NOT_DURABLE') end
@@ -62,7 +63,16 @@ local function restore()
         payload.status ~= 'PENDING_REVIEW' then
       return fail('QUEUE_CORRUPT / MANUAL_RECOVERY_REQUIRED') end
   end
-  queue, nonce, nextId = loaded, data.nonce, data.next_id
+  local numbers = {}
+  if data.lap_numbers ~= nil then
+    if type(data.lap_numbers) ~= 'table' then return fail('QUEUE_CORRUPT / MANUAL_RECOVERY_REQUIRED') end
+    for session, n in pairs(data.lap_numbers) do
+      if type(session) ~= 'string' or type(n) ~= 'number' or n < 0 or n % 1 ~= 0 then
+        return fail('QUEUE_CORRUPT / MANUAL_RECOVERY_REQUIRED') end
+      numbers[session] = n
+    end
+  end
+  queue, nonce, nextId, lapNumbers = loaded, data.nonce, data.next_id, numbers
   return true
 end
 restore()
@@ -164,10 +174,20 @@ function script.configure(config)
   status = 'READY / operator attestation only; asset identity UNVERIFIED'
   return true
 end
-local function resetRoute()
+local function resetRoute(reason)
   if calibration then route = core.route_machine(calibration.route) end
   previous, started, frozen = nil, nil, nil
-  status = 'OUTLAP_RESET / TELEPORT_OR_GAP / NOT SCORED'
+  status = 'OUTLAP_RESET / '..(reason or 'TELEPORT_OR_GAP')..' / NOT SCORED'
+end
+-- CSP reset/teleport and session restart events (documented APIs; absent ones degrade to
+-- the position-jump and dt guards in script.update).
+if ac and type(ac.onCarJumped) == 'function' then
+  pcall(ac.onCarJumped, 0, function() resetRoute('CAR_JUMPED') end)
+end
+if ac and type(ac.onSessionStart) == 'function' then
+  pcall(ac.onSessionStart, function()
+    resetRoute('SESSION_START'); lastResetCounter = nil; script.refreshAssignment()
+  end)
 end
 function script.update(dt)
   autostart()
@@ -179,6 +199,11 @@ function script.update(dt)
   local car = ac.getCar(0)
   if not car or not car.position then resetRoute(); return end
   local current = {x=car.position.x, z=car.position.z}
+  if type(car.resetCounter) == 'number' then
+    local changed = lastResetCounter ~= nil and car.resetCounter ~= lastResetCounter
+    lastResetCounter = car.resetCounter
+    if changed then resetRoute('RESET_COUNTER'); previous = current; return end
+  end
   if type(current.x) ~= 'number' or type(current.z) ~= 'number' or
       (previous and ((current.x-previous.x)^2+(current.z-previous.z)^2 > (100*dt+1)^2)) then
     resetRoute(); previous = current; return
@@ -198,10 +223,15 @@ function script.update(dt)
     local raw = math.floor((elapsed-started)*1000+0.5)
     if raw <= 0 or raw > 3600000 then resetRoute(); return end
     local id = station..'-'..nonce..'-'..tostring(nextId)
+    local lapNumber = (lapNumbers[frozen.session_id] or 0) + 1
+    local okScoring, scoring = pcall(require, 'scoring')
     local payload = {protocol_version=1, station_id=frozen.station_id, lap_id=id,
       session_id=frozen.session_id, pilot_id=frozen.pilot_id, event='endurance',
       assignment_revision=frozen.assignment_revision,
-      raw_ms=raw, status='PENDING_REVIEW', scoring_version=1}
+      raw_ms=raw, status='PENDING_REVIEW', scoring_version=1, lap_number=lapNumber,
+      rules_version=okScoring and type(scoring) == 'table' and scoring.RULES_VERSION or nil,
+      calibration_version=type(calibration.calibration_version) == 'string' and calibration.calibration_version or nil,
+      client_timestamp=os.time()}
     -- JSON libraries may encode an empty Lua table as []; the server requires
     -- events to be an object. Append the literal empty object to encoded scalars.
     local ok, serialized = pcall(JSON.stringify, payload)
@@ -212,6 +242,7 @@ function script.update(dt)
     if not ok or type(serialized) ~= 'string' or not queue:add(id, serialized) then
       fail('QUEUE_UNAVAILABLE / NOT SENT'); return end
     nextId = nextId + 1
+    lapNumbers[frozen.session_id] = lapNumber
     if not persist() then return end
     crossings = crossings + 1
     lastResult = {raw_seconds=raw/1000}

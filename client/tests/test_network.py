@@ -7,7 +7,7 @@ from lupa import LuaRuntime
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def harness(storage=None):
+def harness(storage=None, pre_exec=None):
     lua = LuaRuntime(unpack_returned_tuples=True)
     storage = {} if storage is None else storage
     def to_lua(obj):
@@ -40,6 +40,7 @@ def harness(storage=None):
         return send
     lua.globals().web = lua.table_from({'get': request('GET'), 'post': request('POST')})
     lua.globals().package.path = str(ROOT / '?.lua') + ';' + lua.globals().package.path
+    if pre_exec: pre_exec(lua)
     lua.execute((ROOT / 'RiceTrials.lua').read_text())
     def reply(index, data, code=200, err=None):
         requests[index][4](err, to_lua({'status': code, 'body': json.dumps(data)}))
