@@ -2,7 +2,7 @@
 
 Estado: probado en Linux con lupa (LuaJIT 2.1, igual que CSP) sobre un filesystem
 simulado en memoria (`client/tests/test_journal.py`). Pendiente de validar en CSP sobre
-Windows. Todavía no está integrado en `RiceTrials.lua`.
+Windows. Integrado en `RiceTrials.lua`: todo el estado del cliente (entradas, nonce, next_id, números de vuelta) es un único registro del journal en `apps/lua/RiceTrials/state/`; la clave vieja de `ac.storage` se migra una vez y se borra tras confirmar el archivo.
 
 ## Garantías reales
 

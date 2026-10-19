@@ -8,6 +8,15 @@ local blocked, endpoint, station, token, assignment, frozen = false, nil, nil, n
 local sending, fetching, heartbeat, retryClock, heartbeatClock = false, false, false, 0, 0
 local bootAttempted = false
 local lapNumbers, lastResetCounter = {}, nil
+-- HUD and diagnostics are optional: a load failure degrades to the plain text window
+-- and never blocks timing or the queue.
+local okHud, hud = pcall(require, 'hud')
+if not okHud or type(hud) ~= 'table' then hud = nil end
+local okDiag, diagnosticsModule = pcall(require, 'diagnostics')
+if not okDiag or type(diagnosticsModule) ~= 'table' then diagnosticsModule = nil end
+local hudCache = hud and hud.cache(0.25) or nil
+local hudConfig, diag = {}, nil
+local online, lastAck = nil, nil
 local function autostart()
   if bootAttempted then return end
   bootAttempted = true
@@ -16,6 +25,13 @@ local function autostart()
   local ok, settings = pcall(require, 'station_config')
   if not ok or type(settings) ~= 'table' then
     status = 'STATION_CONFIG_MISSING / NOT SCORED'; return end
+  for _, key in ipairs({'hud_scale', 'hud_x', 'hud_y', 'hud_max_errors', 'hud_font'}) do
+    hudConfig[key] = settings[key]
+  end
+  if diagnosticsModule and settings.diagnostics == true then
+    local okNew, created = pcall(diagnosticsModule.new, settings)
+    if okNew and type(created) == 'table' then diag = created end
+  end
   if not script.connect(settings.server_url, settings.station_id, settings.station_token) then
     status = 'STATION_CONFIG_INVALID / NOT SCORED'; return end
   -- Route data is a separate operator-calibrated module, not a generated default.
@@ -120,13 +136,16 @@ local function sendPending()
     sending = false
     local body = decoded(err, response)
     if not body or body.lap_id ~= item.id or body.status ~= 'PENDING_REVIEW' then
+      online = body ~= nil
       status = 'SEND_UNACKNOWLEDGED / RETRY_PENDING'; return end
+    online = true
     -- Snapshot before removal so a failed persistence operation never loses the item in memory.
     local old = queue.entries
     local remainder = {}
     for i=2,#old do remainder[#remainder+1] = old[i] end
     queue.entries = remainder
     if not persist() then queue.entries = old; return end
+    lastAck = {lap_id=item.id, at=os.clock()}
     status = 'PENDING_REVIEW / SERVER_ACKNOWLEDGED (NOT SCORED)'
     sendPending()
   end)
@@ -158,7 +177,8 @@ local function beat()
   local ok = pcall(web.post, endpoint..'/api/station/heartbeat', headers(),
     JSON.stringify({station_id=station, protocol_version=1}), function(err, response)
       heartbeat = false
-      if not decoded(err, response) then status = 'HEARTBEAT_UNCONFIRMED / NOT SCORED' end
+      if not decoded(err, response) then online = false; status = 'HEARTBEAT_UNCONFIRMED / NOT SCORED'
+      else online = true end
     end)
   if not ok then heartbeat = false; status = 'HEARTBEAT_UNCONFIRMED / NOT SCORED' end
 end
@@ -203,6 +223,7 @@ local function resetRoute(reason)
   if calibration then route = core.route_machine(calibration.route) end
   previous, started, frozen = nil, nil, nil
   status = 'OUTLAP_RESET / '..(reason or 'TELEPORT_OR_GAP')..' / NOT SCORED'
+  if diag then pcall(diag.event, diag, 'route_reset', {reason=reason or 'TELEPORT_OR_GAP'}) end
 end
 -- CSP reset/teleport and session restart events (documented APIs; absent ones degrade to
 -- the position-jump and dt guards in script.update).
@@ -214,8 +235,17 @@ if ac and type(ac.onSessionStart) == 'function' then
     resetRoute('SESSION_START'); lastResetCounter = nil; script.refreshAssignment()
   end)
 end
+local function diagnose(dt)
+  if not diag then return end
+  local car = ac and type(ac.getCar) == 'function' and ac.getCar(0) or nil
+  local sim = ac and type(ac.getSim) == 'function' and ac.getSim() or nil
+  pcall(diag.update, diag, dt, car, sim, {
+    detector={phase=route and route.phase or nil, status=status, crossings=crossings},
+    connection={online=online, pending=#queue.entries, persistence=persistence}})
+end
 function script.update(dt)
   autostart()
+  diagnose(dt)
   if type(dt) ~= 'number' or dt <= 0 or dt > 1 then resetRoute(); return end
   retryClock, heartbeatClock = retryClock + dt, heartbeatClock + dt
   if retryClock >= 5 then retryClock = 0; sendPending() end
@@ -280,8 +310,8 @@ function script.update(dt)
   end
   previous = current
 end
-function script.windowMain(dt)
-  ui.text('Rice Driver Trials — NOT VALIDATED on CSP/Windows')
+local function plainWindow()
+  ui.text('Rice Driver Trials: NOT VALIDATED on CSP/Windows')
   ui.text(status)
   ui.text('Track: '..(calibration and calibration.track_id or 'none; spatial timing disabled'))
   ui.text('Event: '..(calibration and calibration.event or 'none')..' | Routes: '..tostring(crossings or 0))
@@ -289,4 +319,34 @@ function script.windowMain(dt)
   ui.text('Queue persistence: '..tostring(persistence))
   if lastResult then ui.text(string.format('Provisional route: %.3f s (NOT SCORED)', lastResult.raw_seconds)) end
   ui.text('Cone contacts/off-course: unknown; manual review only')
+end
+local function persistenceForHud()
+  if persistence == 'migrated' or persistence == 'empty' then return 'ok' end
+  if persistence == 'ok' or persistence == 'degraded' or persistence == 'corrupt' then return persistence end
+  return 'unavailable'
+end
+local function hudState()
+  local timed = route and route.phase == 'timed' and started ~= nil
+  return {
+    assignment=assignment and {pilot_id=assignment.pilot_id, pilot_name=assignment.pilot_name,
+      session_id=assignment.session_id} or nil,
+    event=calibration and calibration.event or nil,
+    phase=calibration and route and route.phase or nil,
+    -- Penalties carry no evidence until a detector is commissioned: shown as "sin evidencia".
+    lap=timed and {elapsed_ms=math.floor((elapsed-started)*1000+0.5), penalties={}} or nil,
+    last_official=nil, best=nil,
+    sync={online=online, pending=#queue.entries, persistence=persistenceForHud(),
+      last_ack=lastAck and {lap_id=lastAck.lap_id, age_s=math.floor(os.clock()-lastAck.at)} or nil},
+    status=status,
+  }
+end
+function script.windowMain(dt)
+  if hudCache then
+    local ok, model = pcall(hudCache.update, hudCache, dt, hudState(), hudConfig)
+    if ok and type(model) == 'table' then
+      local drew, drawn = pcall(hud.draw, model, hudConfig)
+      if drew and drawn then return end
+    end
+  end
+  plainWindow()
 end

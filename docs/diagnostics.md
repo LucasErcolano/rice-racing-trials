@@ -1,6 +1,6 @@
 # Diagnóstico del cliente (`client/diagnostics.lua`)
 
-Estado: **probado en Linux con un filesystem doble (dict) en lupa, Lua 5.4 y LuaJIT 2.1**. No se ejecutó dentro de CSP; el comportamiento real de `io.*` en Windows queda para el Windows Validation Kit. Todavía no está integrado en `RiceTrials.lua`.
+Estado: **probado en Linux con un filesystem doble (dict) en lupa, Lua 5.4 y LuaJIT 2.1**. No se ejecutó dentro de CSP; el comportamiento real de `io.*` en Windows queda para el Windows Validation Kit. Integrado en `RiceTrials.lua`: se activa sólo con `diagnostics = true` en `station_config.lua` (las mismas claves `diagnostics_*` de abajo); apagado no toca `io`. Registra muestras del auto, resets de ruta con su motivo y el estado de conexión/cola.
 
 ## Activación
 
@@ -92,7 +92,7 @@ Campos ausentes (API no expuesta por la versión de CSP) simplemente no aparecen
 
 APIs informadas en `api`: `ac.getCar`, `ac.getSim`, `ac.getPatchVersion`, `ac.getPatchVersionCode`, `ac.getCarID`, `ac.getTrackFullID`, `ac.onCarJumped`, `ac.onSessionStart`, `ac.getFolder`, `ac.storage`, `io.save`, `io.load`, `io.move`, `io.createDir`, `io.deleteFile`, `io.fileExists`, `web.get`, `web.post`, `JSON.parse`, `JSON.stringify`, `ui.pushDWriteFont`, `ui.popDWriteFont`, `ui.dwriteText`, `ui.drawRectFilled`, `ui.textColored`, `ui.windowSize`, `ui.setCursor`.
 
-## Integración sugerida (para el orquestador)
+## Integración (referencia)
 
 ```lua
 local diagnostics = require('diagnostics')

@@ -1,6 +1,6 @@
 # HUD del cliente (`client/hud.lua`)
 
-Estado: **probado en Linux con dobles de `ui` (lupa, Lua 5.4 y LuaJIT 2.1)**. No se ejecutó dentro de Assetto Corsa/CSP. Todavía no está integrado en `RiceTrials.lua`; la integración la hace el orquestador.
+Estado: **probado en Linux con dobles de `ui` (lupa, Lua 5.4 y LuaJIT 2.1)**. No se ejecutó dentro de Assetto Corsa/CSP. Integrado en `RiceTrials.lua`: `script.windowMain` dibuja el modelo cacheado (0.25 s) y, si `hud.lua` no carga o `hud.draw` falla, cae a la ventana de texto plano. Las penalidades se muestran como «sin evidencia» porque ningún detector está comisionado. Configuración por estación en `station_config.lua`: `hud_scale`, `hud_x`, `hud_y`, `hud_max_errors`, `hud_font`.
 
 ## Separación modelo / render
 
@@ -100,7 +100,7 @@ El cronometraje, la cola y el envío viven en `script.update(dt)`, que CSP llama
 
 No se modificó. Hoy declara `[WINDOW_MAIN]` con `FUNCTION_MAIN = windowMain` y `FLAGS = MAIN`. **No está verificado en juego** que el HUD aparezca automáticamente al cargar la sesión; puede requerir que el piloto u operador lo abra desde la barra de apps de CSP. Comprobarlo en el Windows Validation Kit.
 
-## Integración sugerida (para el orquestador)
+## Integración (referencia)
 
 ```lua
 local hud = require('hud')
