@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Rice Racing · Control</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font:18px system-ui;background:#111827;color:#f8fafc;max-width:900px;margin:2rem auto;padding:1rem}input,select,button{font:inherit;padding:.4rem;margin:.2rem;background:#fff;color:#111}fieldset{margin:1rem 0;border:1px solid #64748b}a{color:#67e8f9}li{margin:.4rem 0}small{color:#cbd5e1}</style>
+<h1>Rice Racing · Admin</h1><p>Enter the admin bearer token on a trusted machine. It stays in this tab only.</p>
+<label>Token <input id="token" type="password" autocomplete="off"></label>
+<fieldset><legend>Session</legend><input id="session" placeholder="Session ID"><input id="session-name" placeholder="Name"><button id="save-session">Save session</button></fieldset>
+<fieldset><legend>Pilot</legend><input id="pilot" placeholder="Pilot ID"><input id="pilot-name" placeholder="Name"><button id="save-pilot">Save pilot</button></fieldset>
+<fieldset><legend>Assign station</legend><input id="station" placeholder="Station ID"><button id="assign">Assign pilot/session above</button></fieldset>
+<fieldset><legend>Calibration provenance (admin inspected, per station/config)</legend><input id="track-config" placeholder="Track config ID"><input id="reference" placeholder="Inspection record reference"><input id="operator" placeholder="Inspector"><label><input id="active" type="checkbox" checked>Active</label><button id="calibrate">Save calibration</button><small>Client calibration flags alone never certify an endurance lap.</small></fieldset>
+<fieldset><legend>Provisional review</legend><button id="refresh">Refresh session</button><ul id="pending"></ul><input id="lap-id" placeholder="Lap ID"><select id="decision"><option value="approve">Approve</option><option value="reject">Reject</option></select><input id="reviewer" placeholder="Reviewer"><input id="reason" placeholder="Reason / evidence"><button id="review">Submit review</button><h3>Audit trail</h3><ul id="audit"></ul></fieldset>
+<button id="backup">Create SQLite backup</button><button id="export">Download session CSV</button><button id="export-reviews">Download review audit CSV</button><p id="message" role="status"></p><p><a href="/tv">TV leaderboard</a></p><script src="/admin.js"></script></html>

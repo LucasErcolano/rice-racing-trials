@@ -1,0 +1,13 @@
+# Operator guide — station dry-run
+
+**Commissioning only** until Rice authorizes the final protocol, physical rig and official-mode release. Do not manually edit configuration, setup, track or result files. The historical handoff ZIP is reference material, not proof that this newly packaged application is ready.
+
+1. At startup, check that the wheel and pedals are safe and calibrated, emergency stop works, AC/CSP and the approved external MFT02 and JSAE course content are installed, disk space is sufficient and the recovery drive is connected. If any preflight or freeze/hash check fails, **stop** and call the technician. Do not bypass it.
+2. Launch **Rice Trials** from the desktop shortcut. Enter an assigned driver ID (never a real name in result folders). Choose **Skidpad** or **Autocross**. Confirm the current baseline and that this is a commissioning run. Start the restore/preflight flow and wait until the application says to drive.
+3. For Skidpad, follow the course entry, right/right then left/left laps and exit. For Autocross, complete one timed course lap from the staged start. Keep focus on the simulator while driving. Use **Stop capture** if the run cannot finish; do not delete a failed attempt.
+4. After capture, have an independent human reviewer record cones down/out (DOO), off-course (OC) and missed slaloms where applicable, reviewer ID and evidence/reason. Automatic detections are advisory. Mark a DNF/incomplete attempt invalid. Save the reviewed result and check that a report is generated; never invent a missing time or reclassify synthetic data as real.
+5. Before the next driver, confirm the attempt is saved and start a fresh driver session. At the end, export results with checksums, confirm backup/restore on the approved storage, then close the application gracefully. Preserve raw timing, telemetry and audit history.
+
+**If an attempt or station fails:** stop capture, secure the rig, preserve the attempt and logs, and ask the technician to run the documented recovery/preflight process. Never repeatedly restart or alter frozen files to make a check pass. A wheel safety issue, repeated failure or unexpected hash mismatch ends the session pending review.
+
+**Scope note:** exact buttons, command names, server synchronization and data locations must be reconciled with the final application build before printing this guide for operators. The original handoff's `OPERATOR_GUIDE.md`, `DOO_OC_REVIEWER_GUIDE.md`, `VENUE_STARTUP_CHECKLIST.md`, `VENUE_SHUTDOWN_CHECKLIST.md` and `RECOVERY_PLAYBOOK.md` remain the detailed source for legacy behavior; they assume a Python-based handoff and should not be followed verbatim for deployment of a new executable.

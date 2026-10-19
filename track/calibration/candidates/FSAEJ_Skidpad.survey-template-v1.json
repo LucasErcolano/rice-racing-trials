@@ -1,0 +1,9 @@
+{
+  "version": "slalom-gates-v1",
+  "status": "candidate",
+  "track": "FSAEJ_Skidpad",
+  "asset_sha256": "6860d67fa19e5510e5be8b721dc272ffa07c7cfbe731e2e6d6a72f8bf3836916",
+  "survey_id": null,
+  "gates": [],
+  "note": "Operator must survey and validate every pylon/gate in the matching rig; do not activate from AI path."
+}

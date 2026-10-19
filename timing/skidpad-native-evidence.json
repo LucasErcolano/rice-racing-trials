@@ -1,0 +1,28 @@
+{
+  "dummy_kn5_sha256": "ded0d93e87975946c4d8cd0bd66f1cd152eda5d19069b8dc396e046f873e5fee",
+  "grid_to_timing_midpoint_xz_m": 28.2411772885557,
+  "markers_ac_xyz": {
+    "AC_PIT_0": [
+      -152.6975555419922,
+      1.0,
+      32.376014709472656
+    ],
+    "AC_START_0": [
+      -51.29187774658203,
+      1.0,
+      25.264404296875
+    ],
+    "AC_TIME_0_L": [
+      -32.070068359375,
+      -0.13896937668323517,
+      4.187870025634766
+    ],
+    "AC_TIME_0_R": [
+      -28.753019332885742,
+      0.0,
+      8.310647964477539
+    ]
+  },
+  "native_fix_status": "REQUIRES_GAME_VALIDATION",
+  "track_id": "FSAEJ_Skidpad"
+}

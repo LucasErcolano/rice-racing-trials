@@ -1,0 +1,4 @@
+assets/
+dist/
+__pycache__/
+*.sqlite

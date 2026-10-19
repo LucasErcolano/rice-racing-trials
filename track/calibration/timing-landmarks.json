@@ -1,0 +1,25 @@
+{
+  "schema": "offline-timing-landmarks-v1",
+  "status": "evidence-only-not-active-scoring-gates",
+  "ac_units": "meters; X,Y,Z",
+  "tracks": {
+    "FSAEJ_Skidpad": {
+      "physics_kn5_sha256": "6860d67fa19e5510e5be8b721dc272ffa07c7cfbe731e2e6d6a72f8bf3836916",
+      "dummy_kn5_sha256": "ded0d93e87975946c4d8cd0bd66f1cd152eda5d19069b8dc396e046f873e5fee",
+      "timing_dummy_ac_xyz_rounded": {
+        "AC_TIME_0_L": [-32.070, -0.139, 4.188],
+        "AC_TIME_0_R": [-28.753, 0.0, 8.311]
+      },
+      "definition_timing_line_canonical_xy": [[-2.6457571337129213, 0.006816425607594434], [2.6457559462937104, 0.00804168506428149]]
+    },
+    "FSAEJ_Endurance": {
+      "physics_kn5_sha256": "62cab78119788f40a45c4226b572d0b8bc1304bfae93d1523b288d373ac55b5b",
+      "dummy_kn5_sha256": "737f3f2676656c25f3a07f83981bea336810ee6d0cba4854cf55148cef2864d1",
+      "timing_dummy_ac_xyz_rounded": {
+        "AC_TIME_0_L": [-108.581, 1.0, 42.438],
+        "AC_TIME_0_R": [-115.773, 1.0, 42.438]
+      },
+      "definition_start_finish_line_map_xy": [[108.5807, 42.4376], [115.7726, 42.4376]]
+    }
+  }
+}
