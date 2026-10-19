@@ -18,7 +18,7 @@ param(
     [string]$DatabasePath,
     [string]$SecretsPath,
     [string]$BackupFile,
-    [string]$ServerExe = (Join-Path $PSScriptRoot 'RiceTrialsServer\RiceTrialsServer.exe'),
+    [string]$ServerExe,
     [string]$HostAddress = '127.0.0.1',
     [ValidateRange(1,65535)][int]$Port = 8080,
     [string]$TaskName = 'RiceTrialsServer',
@@ -27,6 +27,9 @@ param(
     [switch]$Remove
 )
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 started with -File leaves $PSScriptRoot empty inside param() defaults: resolve here.
+$scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $ServerExe) { $ServerExe = Join-Path $scriptRoot 'RiceTrialsServer\RiceTrialsServer.exe' }
 if ($env:OS -ne 'Windows_NT') { throw 'Windows required' }
 $ruleName = "RiceTrials Server TCP $Port"
 function Assert-Administrator {
@@ -82,11 +85,11 @@ switch ($Action) {
     'RegisterTask' {
         Assert-Administrator; Assert-DatabasePath
         if (-not $SecretsPath) { throw '-SecretsPath required' }
-        $script = Join-Path $PSScriptRoot 'start-server.ps1'
+        $script = Join-Path $scriptRoot 'start-server.ps1'
         $arguments = '-NoProfile -ExecutionPolicy Bypass -File ' + (Quote $script) + ' -SecretsPath ' + (Quote $SecretsPath) +
                      ' -DatabasePath ' + (Quote $DatabasePath) + " -HostAddress $HostAddress -Port $Port"
         if ($AllowLanBind) { $arguments += ' -AllowLanBind' }
-        $taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments -WorkingDirectory $PSScriptRoot
+        $taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments -WorkingDirectory $scriptRoot
         $trigger = New-ScheduledTaskTrigger -AtStartup
         $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable
         # DPAPI secrets only decrypt under the account that ran configure-secrets.ps1: use that same account here.

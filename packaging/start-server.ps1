@@ -4,7 +4,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$SecretsPath,
     [Parameter(Mandatory=$true)][string]$DatabasePath,
-    [string]$ServerExe = (Join-Path $PSScriptRoot 'RiceTrialsServer\RiceTrialsServer.exe'),
+    [string]$ServerExe,
     [string]$HostAddress = '127.0.0.1',
     [ValidateRange(1,65535)][int]$Port = 8080,
     [switch]$AllowLanBind,
@@ -12,10 +12,13 @@ param(
     [ValidateRange(1,1000)][int]$KeepLogs = 30
 )
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 started with -File leaves $PSScriptRoot empty inside param() defaults: resolve here.
+$scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $ServerExe) { $ServerExe = Join-Path $scriptRoot 'RiceTrialsServer\RiceTrialsServer.exe' }
 if ($env:OS -ne 'Windows_NT') { throw 'Windows DPAPI required' }
 function Assert-OutsideRelease([string]$path, [string]$what) {
     $resolved = (Resolve-Path -LiteralPath $path).Path
-    $releaseRoot = (Resolve-Path -LiteralPath $PSScriptRoot).Path
+    $releaseRoot = (Resolve-Path -LiteralPath $scriptRoot).Path
     if ($resolved -eq $releaseRoot -or $resolved.StartsWith($releaseRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw "$what must live outside release directory" }
     return $resolved
 }
