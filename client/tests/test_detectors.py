@@ -77,22 +77,24 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(detector.count, 0)
 
 
+@unittest.skipUnless((ROOT / 'assets/source/FSAEJ_Endurance.zip').is_file(),
+                     'JSAE track archive is proprietary and gitignored (assets/source); not present in CI')
 class ArchiveInspectionTests(unittest.TestCase):
     def test_inspection_emits_real_ai_evidence_but_no_certified_gates(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = subprocess.run([sys.executable, str(ROOT / 'track/inspect.py'),
                                      '--archive', str(ROOT / 'assets/source/FSAEJ_Endurance.zip'),
-                                     '--output', tmp], capture_output=True, text=True)
+                                     '--output', tmp], capture_output=True, text=True, encoding='utf-8')
             self.assertEqual(result.returncode, 0, result.stderr)
-            candidate = json.loads((Path(tmp) / 'FSAEJ_Endurance.candidate-v1.json').read_text())
+            candidate = json.loads((Path(tmp) / 'FSAEJ_Endurance.candidate-v1.json').read_text(encoding='utf-8'))
             self.assertEqual(candidate['schema'], 'ai-path-candidate-v1')
             self.assertEqual(candidate['confidence'], 'asset-derived-unsurveyed')
             self.assertEqual(candidate['point_count'], 608)
             self.assertEqual(candidate['surface_validity']['PYLON'], False)
             self.assertEqual(candidate['surface_validity']['ASPHALT'], True)
             self.assertNotIn('certified_gates', candidate)
-            self.assertTrue((Path(tmp) / 'FSAEJ_Endurance.candidate-v1.svg').read_text().startswith('<svg'))
-            survey = json.loads((Path(tmp) / 'FSAEJ_Endurance.survey-template-v1.json').read_text())
+            self.assertTrue((Path(tmp) / 'FSAEJ_Endurance.candidate-v1.svg').read_text(encoding='utf-8').startswith('<svg'))
+            survey = json.loads((Path(tmp) / 'FSAEJ_Endurance.survey-template-v1.json').read_text(encoding='utf-8'))
             self.assertEqual(survey['status'], 'candidate')
             self.assertEqual(survey['gates'], [])
             self.assertEqual(survey['asset_sha256'], candidate['member_sha256']['Physics.kn5'])
@@ -102,7 +104,7 @@ class ArchiveInspectionTests(unittest.TestCase):
             archive = Path(tmp) / 'bad.zip'
             archive.write_bytes(b'not a ZIP')
             result = subprocess.run([sys.executable, str(ROOT / 'track/inspect.py'),
-                                     '--archive', str(archive), '--output', tmp], capture_output=True, text=True)
+                                     '--archive', str(archive), '--output', tmp], capture_output=True, text=True, encoding='utf-8')
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(list(Path(tmp).glob('*.candidate-v1.json')))
 
