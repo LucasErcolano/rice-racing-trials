@@ -68,7 +68,17 @@ jobs:
             if ($kind -ne 'client' -and -not (Test-Path (Join-Path $dest 'RiceTrialsServer/RiceTrialsServer.exe'))) { throw 'Server missing' }
             if ($kind -ne 'server' -and -not (Test-Path (Join-Path $dest 'tools/validation.py'))) { throw 'Validation kit missing' }
             if ($kind -ne 'client' -and -not (Test-Path (Join-Path $dest 'server-admin.ps1'))) { throw 'Server admin script missing' }
-            $bad = @(Get-ChildItem -LiteralPath $dest -Recurse -File | Where-Object { $_.Extension -match '^\.(rar|zip|7z|kn5|acd|sqlite|db|candidate)$' -or $_.Name -match '(^\.env$|credentials|token\.json$|secrets\.xml$|station_config\.lua$)' })
+            # PyInstaller always ships the frozen stdlib as _internal/base_library.zip: allowed only at that
+            # exact path and only if every entry is Python bytecode.
+            $stdlib = Join-Path $dest 'RiceTrialsServer/_internal/base_library.zip'
+            if (Test-Path -LiteralPath $stdlib) {
+              Add-Type -AssemblyName System.IO.Compression.FileSystem
+              $za = [System.IO.Compression.ZipFile]::OpenRead($stdlib)
+              try { $odd = @($za.Entries | Where-Object { $_.FullName -notmatch '\.pyc$' -and $_.FullName -notmatch '/$' } | ForEach-Object FullName) }
+              finally { $za.Dispose() }
+              if ($odd.Count -gt 0) { throw "base_library.zip contains non-bytecode entries: $($odd -join ', ')" }
+            }
+            $bad = @(Get-ChildItem -LiteralPath $dest -Recurse -File | Where-Object { $_.FullName -ne (Get-Item -LiteralPath $stdlib -ErrorAction SilentlyContinue).FullName } | Where-Object { $_.Extension -match '^\.(rar|zip|7z|kn5|acd|sqlite|db|candidate)$' -or $_.Name -match '(^\.env$|credentials|token\.json$|secrets\.xml$|station_config\.lua$)' })
             if ($bad.Count -gt 0) { throw "Forbidden payload in $zip : $($bad.FullName -join ', ')" }
             Get-FileHash $zip -Algorithm SHA256 | Format-List
           }
