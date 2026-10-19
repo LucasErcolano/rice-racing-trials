@@ -423,7 +423,11 @@ function global:Read-Host { param([Parameter(Position=0)][object]$Prompt, [switc
         Remove-Item Function:\global:Get-Credential
         $rights = Join-Path $harnessDir 'rights-after.inf'; & secedit /export /areas USER_RIGHTS /cfg $rights | Out-Null
         $svcSid = (New-Object Security.Principal.NTAccount($svcCred.UserName)).Translate([Security.Principal.SecurityIdentifier]).Value
-        Assert ((Get-Content $rights | Select-String '^SeBatchLogonRight') -match [regex]::Escape($svcSid)) 'RegisterTask no otorgó SeBatchLogonRight a la cuenta dedicada'
+        $batchLine = [string]((Get-Content $rights | Where-Object { $_ -match '^SeBatchLogonRight' }) -join ' ')
+        Log "derechos tras RegisterTask: $batchLine (SID de $svcName = $svcSid)"
+        # secedit lists resolvable local accounts by name and the rest as *SID: accept either form.
+        $members = @(($batchLine -replace '^SeBatchLogonRight\s*=\s*', '') -split ',' | ForEach-Object { $_.Trim().TrimStart('*') })
+        Assert ($members -contains $svcSid -or $members -contains $svcName -or $members -contains "$env:COMPUTERNAME\$svcName") 'RegisterTask no otorgó SeBatchLogonRight a la cuenta dedicada'
         $task = Get-ScheduledTask -TaskName RiceTrialsServer
         Assert ($task.Principal.UserId -match $svcName) "principal inesperado: $($task.Principal.UserId)"
         Assert ($task.Triggers[0].CimClass.CimClassName -eq 'MSFT_TaskBootTrigger') 'el disparador no es AtStartup'
