@@ -424,11 +424,17 @@ function global:Read-Host { param([Parameter(Position=0)][object]$Prompt, [switc
         $task = Get-ScheduledTask -TaskName RiceTrialsServer
         Assert ($task.Principal.UserId -match $svcName) "principal inesperado: $($task.Principal.UserId)"
         Assert ($task.Triggers[0].CimClass.CimClassName -eq 'MSFT_TaskBootTrigger') 'el disparador no es AtStartup'
+        # The Task Scheduler operational log is disabled by default: enable it so failures leave history.
+        & wevtutil sl Microsoft-Windows-TaskScheduler/Operational /e:true | Out-Null
         Start-ScheduledTask -TaskName RiceTrialsServer
         if (-not (Wait-Http '127.0.0.1' 60)) {
             $info = Get-ScheduledTaskInfo -TaskName RiceTrialsServer
+            Log "estado de la tarea: $((Get-ScheduledTask -TaskName RiceTrialsServer).State); LastRunTime=$($info.LastRunTime)"
+            Log ((& schtasks /query /tn RiceTrialsServer /v /fo list 2>&1) -join "`n")
+            try { $rights = Join-Path $harnessDir 'rights.inf'; & secedit /export /areas USER_RIGHTS /cfg $rights | Out-Null
+                  Log ((Get-Content $rights | Select-String 'SeBatchLogonRight|SeDenyBatchLogonRight|SeServiceLogonRight') -join "`n") } catch { Log "secedit: $($_.Exception.Message)" }
             Save-ServerLogs 'task'
-            try { Get-WinEvent -LogName 'Microsoft-Windows-TaskScheduler/Operational' -MaxEvents 30 -ErrorAction Stop | Where-Object { $_.Message -match 'RiceTrials' } |
+            try { Get-WinEvent -LogName 'Microsoft-Windows-TaskScheduler/Operational' -MaxEvents 30 -ErrorAction Stop | Where-Object { $_.Message -match 'RiceTrials|ricesvc' } |
                     ForEach-Object { Log "evento $($_.Id): $($_.Message -replace '\s+',' ')" } } catch { Log "sin historial de tareas: $($_.Exception.Message)" }
             throw "la tarea no levantó el servidor; LastTaskResult=$($info.LastTaskResult)"
         }

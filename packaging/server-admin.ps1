@@ -109,7 +109,7 @@ switch ($Action) {
         $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($token)
         try {
             $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
-            $response = Invoke-RestMethod -Method Post -Uri "http://${HostAddress}:$Port/api/admin/backup" -Headers @{ Authorization = "Bearer $plain" } -TimeoutSec 60
+            $response = Invoke-RestMethod -Method Post -Uri "http://${HostAddress}:$Port/api/admin/backup" -Headers @{ Authorization = "Bearer $plain" } -ContentType 'application/json' -Body '{}' -TimeoutSec 60
         } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr); $plain = $null; $token = $null }
         Write-Host "Backup creado por el servidor: $($response.path)"
         if (Test-Path -LiteralPath $response.path -PathType Leaf) { Get-FileHash -LiteralPath $response.path -Algorithm SHA256 | Format-List }
