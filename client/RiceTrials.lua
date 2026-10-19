@@ -34,23 +34,28 @@ local function fail(message)
   blocked = true; status = message
   return false
 end
+-- Durable queue: client/journal.lua (A/B slot files, seq + FNV-1a checksum, readback).
+-- The whole client state is one journal record so entries, nonce, next_id and lap
+-- numbers can never be persisted out of step. The old ac.storage key is migrated once.
+local journalModule = require('journal')
+local journal, persistence = nil, 'unavailable'
+local function journalDir()
+  if ac and type(ac.getFolder) == 'function' and type(ac.FolderID) == 'table' and ac.FolderID.Root ~= nil then
+    local ok, root = pcall(ac.getFolder, ac.FolderID.Root)
+    if ok and type(root) == 'string' and root ~= '' then return root..'/apps/lua/RiceTrials/state' end
+  end
+  return nil -- no documented folder: journal degrades to ac.storage and says so
+end
 local function persist()
-  if not ac or not ac.storage or not JSON or not JSON.stringify then
+  if not journal or not JSON or not JSON.stringify then
     return fail('STORAGE_UNAVAILABLE / REVIEW_NOT_DURABLE') end
-  local ok, serialized = pcall(JSON.stringify, {version=1, nonce=nonce, next_id=nextId, entries=queue.entries, lap_numbers=lapNumbers})
-  if not ok or type(serialized) ~= 'string' then return fail('STORAGE_UNAVAILABLE / REVIEW_NOT_DURABLE') end
-  ok = pcall(function() ac.storage[storageKey] = serialized end)
-  if not ok or ac.storage[storageKey] ~= serialized then return fail('STORAGE_UNVERIFIED / REVIEW_NOT_DURABLE') end
-  -- CSP storage flushes asynchronously: readback is not a crash-durability guarantee.
+  local ok = journal:save({{version=1, nonce=nonce, next_id=nextId, entries=queue.entries, lap_numbers=lapNumbers}})
+  persistence = journal:state().state
+  if not ok then return fail('STORAGE_UNVERIFIED / REVIEW_NOT_DURABLE') end
   return true
 end
-local function restore()
-  if not ac or not ac.storage or not JSON or not JSON.parse then
-    return fail('STORAGE_UNAVAILABLE / MANUAL_RECOVERY_REQUIRED') end
-  local raw = ac.storage[storageKey]
-  if raw == nil then return true end
-  local ok, data = pcall(JSON.parse, raw)
-  if not ok or type(data) ~= 'table' or data.version ~= 1 or
+local function adopt(data)
+  if type(data) ~= 'table' or data.version ~= 1 or
       type(data.nonce) ~= 'string' or not data.nonce:match('^[a-zA-Z0-9_.-]+$') or
       type(data.next_id) ~= 'number' or data.next_id < 1 or data.next_id % 1 ~= 0 or
       type(data.entries) ~= 'table' then return fail('QUEUE_CORRUPT / MANUAL_RECOVERY_REQUIRED') end
@@ -73,6 +78,26 @@ local function restore()
     end
   end
   queue, nonce, nextId, lapNumbers = loaded, data.nonce, data.next_id, numbers
+  return true
+end
+local function restore()
+  if not JSON or not JSON.parse or not JSON.stringify then
+    return fail('STORAGE_UNAVAILABLE / MANUAL_RECOVERY_REQUIRED') end
+  journal = journalModule.new({dir=journalDir(), name='queue'}, {
+    io=io, storage=ac and ac.storage,
+    json={encode=function(v) return JSON.stringify(v) end, decode=function(t) return JSON.parse(t) end},
+    legacy_key='rice_trials_legacy_migrated_by_app'}) -- legacy import is done below with full validation
+  local items, state = journal:load()
+  persistence = state
+  if state == 'corrupt' or #items > 1 then return fail('QUEUE_CORRUPT / MANUAL_RECOVERY_REQUIRED') end
+  if items[1] ~= nil then return adopt(items[1]) end
+  local raw = ac and ac.storage and ac.storage[storageKey]
+  if raw == nil then return true end
+  local parsed, data = pcall(JSON.parse, raw)
+  if not parsed or not adopt(data) then return fail('QUEUE_CORRUPT / MANUAL_RECOVERY_REQUIRED') end
+  if not persist() then return false end
+  -- Drop the legacy copy only once a file slot is confirmed by readback.
+  if persistence == 'ok' then pcall(function() ac.storage[storageKey] = nil end); persistence = 'migrated' end
   return true
 end
 restore()
@@ -261,6 +286,7 @@ function script.windowMain(dt)
   ui.text('Track: '..(calibration and calibration.track_id or 'none; spatial timing disabled'))
   ui.text('Event: '..(calibration and calibration.event or 'none')..' | Routes: '..tostring(crossings or 0))
   ui.text('Pending local reviews: '..tostring(#queue.entries))
+  ui.text('Queue persistence: '..tostring(persistence))
   if lastResult then ui.text(string.format('Provisional route: %.3f s (NOT SCORED)', lastResult.raw_seconds)) end
   ui.text('Cone contacts/off-course: unknown; manual review only')
 end

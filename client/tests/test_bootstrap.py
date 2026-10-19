@@ -1,6 +1,6 @@
 """A CSP app must initialize itself from locally provisioned station settings."""
 import unittest
-from test_network import harness
+from test_network import harness, persisted
 
 
 class Bootstrap(unittest.TestCase):
@@ -10,7 +10,7 @@ class Bootstrap(unittest.TestCase):
         lua.globals().script.update(.1)
         self.assertTrue(any(r[1].endswith('/api/station/assignment') for r in requests))
         self.assertTrue(any(r[1].endswith('/api/station/heartbeat') for r in requests))
-        self.assertIn('nonce', storage['rice_trials_pending_review_v1'])
+        self.assertIn('nonce', persisted(storage))
 
     def test_absent_station_config_fails_closed(self):
         lua, _, _, requests, _, _ = harness()

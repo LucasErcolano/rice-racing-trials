@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'client' / 'tests'))
 sys.path.insert(0, str(ROOT))
-from test_network import harness, config, drive_lap
+from test_network import harness, config, drive_lap, persisted
 from server.app import Store, make_handler
 
 
@@ -63,7 +63,7 @@ class EndToEnd(unittest.TestCase):
                 self.assertTrue(script.configure(config(to_lua)))
                 drive_lap(lua, position)
                 self.assertEqual(len(store.laps('session-1')), 1)
-                saved = json.loads(storage['rice_trials_pending_review_v1'])
+                saved = persisted(storage)
                 self.assertEqual(len(saved['entries']), 1)
                 lap_id = saved['entries'][0]['id']
                 assigned_revision = store.assignment('station-1')['assignment_revision']
@@ -77,7 +77,7 @@ class EndToEnd(unittest.TestCase):
                 self.assertTrue(lua2.globals().script.connect(base, 'station-1', 'station-key'))
                 self.assertEqual(len(store.laps('session-1')), 1)
                 self.assertEqual(store.laps('session-1')[0]['lap_id'], lap_id)
-                self.assertEqual(len(json.loads(storage['rice_trials_pending_review_v1'])['entries']), 0)
+                self.assertEqual(len(persisted(storage)['entries']), 0)
                 laps = [item for item in bridge if item[1].endswith('/api/laps')]
                 self.assertEqual(len(laps), 2)
                 self.assertEqual(laps[0][3], laps[1][3])

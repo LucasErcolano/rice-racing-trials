@@ -27,10 +27,25 @@ def harness(storage=None, pre_exec=None):
     lua.globals().JSON = lua.table_from({'parse': lambda s: to_lua(json.loads(s)), 'stringify': lambda o: json.dumps(to_python(o), separators=(',', ':'))})
     class Storage:
         def __getitem__(self, key): return storage.get(key)
-        def __setitem__(self, key, value): storage[key] = value
+        def __setitem__(self, key, value):
+            if value is None: storage.pop(key, None)  # assigning nil deletes the key
+            else: storage[key] = value
     position = {'x': 0, 'z': 1}
     lua.globals().ac = lua.table_from({'storage': Storage(), 'getCar': lambda n: to_lua({'position': position})})
     lua.globals().ui = lua.table_from({'text': lambda s: None})
+    class Files:  # io double over the same dict, so a "restart" sees the same disk
+        def save(self, p, d): storage['file:' + p] = d; return True
+        def load(self, p, fallback=None): return storage.get('file:' + p, fallback)
+        def exists(self, p): return 'file:' + p in storage
+        def delete(self, p): return storage.pop('file:' + p, None) is not None
+    lua.globals().PYFS = Files()
+    lua.execute("""
+      io = {save=function(p, d) return PYFS.save(p, d) end, load=function(p, f) return PYFS.load(p, f) end,
+            fileExists=function(p) return PYFS.exists(p) end, deleteFile=function(p) return PYFS.delete(p) end,
+            createDir=function() return true end}
+      ac.FolderID = {Root='root'}
+      ac.getFolder = function() return 'C:/AC' end
+    """)
     lua.globals().script = lua.table_from({})
     requests = []
     def request(method):
@@ -45,6 +60,20 @@ def harness(storage=None, pre_exec=None):
     def reply(index, data, code=200, err=None):
         requests[index][4](err, to_lua({'status': code, 'body': json.dumps(data)}))
     return lua, storage, position, requests, reply, to_lua
+
+
+STATE_DIR = 'C:/AC/apps/lua/RiceTrials/state'
+
+
+def persisted(storage):
+    """Client state from the newest valid journal slot (what a restarted VM would load)."""
+    best = None
+    for slot in 'ab':
+        raw = storage.get('file:%s/queue.%s.json' % (STATE_DIR, slot))
+        if raw:
+            env = json.loads(raw)
+            if best is None or env['seq'] > best['seq']: best = env
+    return json.loads(best['items'])[0] if best else None
 
 
 def config(to_lua):
@@ -86,12 +115,12 @@ class Network(unittest.TestCase):
         self.assertEqual(payload['events'], {})  # no invented cone count
         self.assertEqual((payload['session_id'], payload['pilot_id']), ('session-1', 'pilot-1'))
         posts[0][4]('offline', None)
-        self.assertIn('entries', storage['rice_trials_pending_review_v1'])
+        self.assertIn('entries', persisted(storage))
         script.retryPending()
         posts = [r for r in requests if r[1].endswith('/api/laps')]
         self.assertEqual(posts[0][3], posts[1][3])
         reply(len(requests)-1, {'lap_id': payload['lap_id'], 'status': 'PENDING_REVIEW'})
-        self.assertEqual(len(json.loads(storage['rice_trials_pending_review_v1'])['entries']), 0)
+        self.assertEqual(len(persisted(storage)['entries']), 0)
 
     def test_corrupt_storage_blocks_configure_and_does_not_overwrite(self):
         storage = {'rice_trials_pending_review_v1': '{bad'}
@@ -110,7 +139,7 @@ class Network(unittest.TestCase):
         post = next(r for r in requests if r[1].endswith('/api/laps'))
         payload = json.loads(post[3])
         post[4](None, to_lua({'status': 200, 'body': json.dumps({'lap_id': 'other', 'status': 'PENDING_REVIEW'})}))
-        self.assertEqual(len(json.loads(storage['rice_trials_pending_review_v1'])['entries']), 1)
+        self.assertEqual(len(persisted(storage)['entries']), 1)
         script.refreshAssignment()
         reply(len(requests)-1, {'station_id': 'station-1', 'session_id': 's2', 'pilot_id': 'p2'})
         script.retryPending()
@@ -131,7 +160,7 @@ class Network(unittest.TestCase):
         script.configure(config(to_lua))
         reply(0, {'station_id': 'station-1', 'session_id': 's1', 'pilot_id': 'p1'})
         drive_lap(lua, position)
-        self.assertEqual(len(json.loads(storage['rice_trials_pending_review_v1'])['entries']), 1)
+        self.assertEqual(len(persisted(storage)['entries']), 1)
         lua2, _, _, requests2, _, _ = harness(storage)
         self.assertFalse(lua2.globals().script.connect('http://127.0.0.1:8080', 'station-2', 'secret2'))
         self.assertFalse(requests2)

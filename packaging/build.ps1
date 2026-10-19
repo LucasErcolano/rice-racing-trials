@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') { throw 'Invalid version' }
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $root
-foreach ($file in @('server/app.py','server/scoring.py','client/scoring.lua','client/detectors.lua','rules/scoring-v1.json','leaderboard/admin.html','leaderboard/admin.js','leaderboard/tv.html','leaderboard/tv.js','client/RiceTrials.lua','client/core.lua','client/manifest.ini','tools/validation.py','track/calibration/timing-landmarks.json')) {
+foreach ($file in @('server/app.py','server/scoring.py','client/scoring.lua','client/detectors.lua','client/journal.lua','client/hud.lua','client/diagnostics.lua','rules/scoring-v1.json','leaderboard/admin.html','leaderboard/admin.js','leaderboard/tv.html','leaderboard/tv.js','client/RiceTrials.lua','client/core.lua','client/manifest.ini','tools/validation.py','track/calibration/timing-landmarks.json')) {
     if (-not (Test-Path $file -PathType Leaf)) { throw "Missing required file: $file" }
 }
 if (-not (Get-Command py -ErrorAction SilentlyContinue)) { throw 'Python launcher required on Windows BUILD host' }
