@@ -96,8 +96,9 @@ function Wait-Http([string]$hostName = '127.0.0.1', [int]$seconds = 40) {
     return $false
 }
 function Stop-RiceServer {
-    Get-Process RiceTrialsServer -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    # Launcher first: start-server.ps1 now supervises the exe and would relaunch it.
     if ($script:launcher -and -not $script:launcher.HasExited) { Stop-Process -Id $script:launcher.Id -Force -ErrorAction SilentlyContinue }
+    Get-Process RiceTrialsServer -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     $deadline = (Get-Date).AddSeconds(20)
     while ((Get-Date) -lt $deadline -and @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue).Count -gt 0) { Start-Sleep -Milliseconds 300 }
 }
@@ -458,7 +459,7 @@ function global:Read-Host { param([Parameter(Position=0)][object]$Prompt, [switc
         Assert ($r.code -in 401, 403) "token viejo aceptado: $($r.code)"
         'OK'
     }
-    Step 'Caída del exe: ¿la tarea lo vuelve a levantar? (RestartCount 3, intervalo 1 min)' {
+    Step 'Caída del exe: start-server.ps1 lo relanza (supervisor, 10 s)' {
         Get-Process RiceTrialsServer | Stop-Process -Force
         Start-Sleep -Seconds 5
         $info = Get-ScheduledTaskInfo -TaskName RiceTrialsServer
@@ -467,7 +468,11 @@ function global:Read-Host { param([Parameter(Position=0)][object]$Prompt, [switc
             $info = Get-ScheduledTaskInfo -TaskName RiceTrialsServer
             throw "no se recuperó en 150 s (estado=$((Get-ScheduledTask -TaskName RiceTrialsServer).State), LastTaskResult=$($info.LastTaskResult))"
         }
-        'el servidor volvió solo'
+        $pid2 = (Get-Process RiceTrialsServer | Select-Object -First 1).Id
+        $owner = (Get-CimInstance Win32_Process -Filter "ProcessId=$pid2" | Invoke-CimMethod -MethodName GetOwner).User
+        Assert ($owner -eq $svcName) "el exe relanzado corre como $owner"
+        Assert ((Get-ScheduledTask -TaskName RiceTrialsServer).State -eq 'Running') 'la tarea dejó de estar Running'
+        "el servidor volvió solo (pid $pid2, como $owner)"
     }
     Step 'UnregisterTask y limpieza de la cuenta' {
         Stop-ScheduledTask -TaskName RiceTrialsServer -ErrorAction SilentlyContinue

@@ -9,7 +9,10 @@ param(
     [ValidateRange(1,65535)][int]$Port = 8080,
     [switch]$AllowLanBind,
     [string]$LogDirectory,
-    [ValidateRange(1,1000)][int]$KeepLogs = 30
+    [ValidateRange(1,1000)][int]$KeepLogs = 30,
+    # Supervisor: Task Scheduler's RestartCount only covers launch failures, not a crashed exe, so restart here.
+    [ValidateRange(0,100)][int]$MaxRestarts = 5,
+    [ValidateRange(1,600)][int]$RestartDelaySeconds = 10
 )
 $ErrorActionPreference = 'Stop'
 # Windows PowerShell 5.1 started with -File leaves $PSScriptRoot empty inside param() defaults: resolve here.
@@ -42,9 +45,6 @@ if ($HostAddress -ne '127.0.0.1') {
 if (-not $LogDirectory) { $LogDirectory = Join-Path $dbParent 'logs' }
 if (-not (Test-Path -LiteralPath $LogDirectory -PathType Container)) { New-Item -ItemType Directory -Path $LogDirectory | Out-Null }
 $LogDirectory = Assert-OutsideRelease $LogDirectory 'LogDirectory'
-$stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
-$outLog = Join-Path $LogDirectory "server-$stamp.out.log"
-$errLog = Join-Path $LogDirectory "server-$stamp.err.log"
 Get-ChildItem -LiteralPath $LogDirectory -Filter 'server-*.log' -File | Sort-Object LastWriteTime -Descending |
     Select-Object -Skip ($KeepLogs * 2) | Remove-Item -Force -ErrorAction SilentlyContinue
 function Reveal([Security.SecureString]$secure) {
@@ -65,11 +65,24 @@ try {
     # The child process inherits these variables; they never appear on its command line.
     $env:RICE_ADMIN_TOKEN = $admin
     $env:RICE_STATION_TOKENS = ConvertTo-Json -InputObject $stations -Compress -Depth 3
-    Write-Host "Starting $ServerExe on ${HostAddress}:$Port; logs: $outLog"
-    # Start-Process redirection avoids PowerShell 5.1 turning native stderr into terminating errors.
-    $proc = Start-Process -FilePath $ServerExe -ArgumentList @('--db', "`"$DatabasePath`"", '--host', $HostAddress, '--port', $Port) `
-        -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
-    if ($proc.ExitCode -ne 0) { throw "Server exited with code $($proc.ExitCode); see $errLog" }
+    $restarts = 0
+    while ($true) {
+        $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
+        $outLog = Join-Path $LogDirectory "server-$stamp.out.log"
+        $errLog = Join-Path $LogDirectory "server-$stamp.err.log"
+        Write-Host "Starting $ServerExe on ${HostAddress}:$Port; logs: $outLog"
+        $started = Get-Date
+        # Start-Process redirection avoids PowerShell 5.1 turning native stderr into terminating errors.
+        $proc = Start-Process -FilePath $ServerExe -ArgumentList @('--db', "`"$DatabasePath`"", '--host', $HostAddress, '--port', $Port) `
+            -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
+        if ($proc.ExitCode -eq 0) { break }
+        # A server that stayed up 10 minutes was healthy: a later crash starts a fresh restart budget.
+        if (((Get-Date) - $started).TotalMinutes -ge 10) { $restarts = 0 }
+        if ($restarts -ge $MaxRestarts) { throw "Server exited with code $($proc.ExitCode) after $restarts restarts; see $errLog" }
+        $restarts++
+        Write-Warning "Server exited with code $($proc.ExitCode) (see $errLog); restart $restarts/$MaxRestarts in $RestartDelaySeconds s"
+        Start-Sleep -Seconds $RestartDelaySeconds
+    }
 } finally {
     Remove-Item Env:RICE_ADMIN_TOKEN -ErrorAction SilentlyContinue
     Remove-Item Env:RICE_STATION_TOKENS -ErrorAction SilentlyContinue
