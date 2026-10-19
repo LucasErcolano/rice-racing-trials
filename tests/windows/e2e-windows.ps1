@@ -421,6 +421,9 @@ function global:Read-Host { param([Parameter(Position=0)][object]$Prompt, [switc
         function global:Get-Credential { param([Parameter(Position=0)]$Message) return $svcCred }
         & "$release\server-admin.ps1" -Action RegisterTask -DatabasePath $db -SecretsPath $secretsSvc -Port $Port
         Remove-Item Function:\global:Get-Credential
+        $rights = Join-Path $harnessDir 'rights-after.inf'; & secedit /export /areas USER_RIGHTS /cfg $rights | Out-Null
+        $svcSid = (New-Object Security.Principal.NTAccount($svcCred.UserName)).Translate([Security.Principal.SecurityIdentifier]).Value
+        Assert ((Get-Content $rights | Select-String '^SeBatchLogonRight') -match [regex]::Escape($svcSid)) 'RegisterTask no otorgó SeBatchLogonRight a la cuenta dedicada'
         $task = Get-ScheduledTask -TaskName RiceTrialsServer
         Assert ($task.Principal.UserId -match $svcName) "principal inesperado: $($task.Principal.UserId)"
         Assert ($task.Triggers[0].CimClass.CimClassName -eq 'MSFT_TaskBootTrigger') 'el disparador no es AtStartup'

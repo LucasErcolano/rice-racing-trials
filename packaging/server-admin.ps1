@@ -49,6 +49,43 @@ function Invoke-Server([string[]]$arguments) {
         if ($proc.ExitCode -ne 0) { throw "RiceTrialsServer.exe exited with $($proc.ExitCode)" }
     } finally { Remove-Item -LiteralPath $out, $err -Force -ErrorAction SilentlyContinue }
 }
+function Grant-BatchLogonRight([string]$userName) {
+    # A task that runs "whether the user is logged on or not" logs on as a batch job. Local accounts created for the
+    # server do not have SeBatchLogonRight by default, and Task Scheduler then fails with 0x80070569 at every start.
+    $sid = (New-Object Security.Principal.NTAccount($userName)).Translate([Security.Principal.SecurityIdentifier])
+    if (-not ('RiceTrials.Lsa' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace RiceTrials {
+public static class Lsa {
+    [StructLayout(LayoutKind.Sequential)] struct LSA_UNICODE_STRING { public ushort Length; public ushort MaximumLength; public IntPtr Buffer; }
+    [StructLayout(LayoutKind.Sequential)] struct LSA_OBJECT_ATTRIBUTES { public int Length; public IntPtr RootDirectory; public IntPtr ObjectName; public uint Attributes; public IntPtr SecurityDescriptor; public IntPtr SecurityQualityOfService; }
+    [DllImport("advapi32.dll")] static extern uint LsaOpenPolicy(IntPtr system, ref LSA_OBJECT_ATTRIBUTES attrs, uint access, out IntPtr handle);
+    [DllImport("advapi32.dll")] static extern uint LsaAddAccountRights(IntPtr handle, byte[] sid, LSA_UNICODE_STRING[] rights, uint count);
+    [DllImport("advapi32.dll")] static extern uint LsaClose(IntPtr handle);
+    [DllImport("advapi32.dll")] static extern int LsaNtStatusToWinError(uint status);
+    public static void AddRight(byte[] sid, string right) {
+        var attrs = new LSA_OBJECT_ATTRIBUTES(); attrs.Length = Marshal.SizeOf(typeof(LSA_OBJECT_ATTRIBUTES));
+        IntPtr policy;
+        uint st = LsaOpenPolicy(IntPtr.Zero, ref attrs, 0x00000811 /* LOOKUP_NAMES | CREATE_ACCOUNT | VIEW_LOCAL_INFORMATION */, out policy);
+        if (st != 0) throw new System.ComponentModel.Win32Exception(LsaNtStatusToWinError(st));
+        IntPtr buf = Marshal.StringToHGlobalUni(right);
+        try {
+            var r = new LSA_UNICODE_STRING[1];
+            r[0].Buffer = buf; r[0].Length = (ushort)(right.Length * 2); r[0].MaximumLength = (ushort)((right.Length + 1) * 2);
+            st = LsaAddAccountRights(policy, sid, r, 1);
+            if (st != 0) throw new System.ComponentModel.Win32Exception(LsaNtStatusToWinError(st));
+        } finally { Marshal.FreeHGlobal(buf); LsaClose(policy); }
+    }
+}
+}
+'@
+    }
+    $bytes = New-Object byte[] ($sid.BinaryLength); $sid.GetBinaryForm($bytes, 0)
+    [RiceTrials.Lsa]::AddRight($bytes, 'SeBatchLogonRight')
+    Write-Host "Derecho 'Iniciar sesión como proceso por lotes' (SeBatchLogonRight) otorgado a $userName ($($sid.Value))."
+}
 function Quote([string]$value) { return '"' + $value + '"' }
 
 switch ($Action) {
@@ -94,6 +131,7 @@ switch ($Action) {
         $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable
         # DPAPI secrets only decrypt under the account that ran configure-secrets.ps1: use that same account here.
         $credential = Get-Credential -Message 'Cuenta dedicada del servidor (la misma que ejecutó configure-secrets.ps1)'
+        Grant-BatchLogonRight $credential.UserName
         Register-ScheduledTask -TaskName $TaskName -Action $taskAction -Trigger $trigger -Settings $settings `
             -User $credential.UserName -Password $credential.GetNetworkCredential().Password -RunLevel Limited | Out-Null
         $credential = $null
