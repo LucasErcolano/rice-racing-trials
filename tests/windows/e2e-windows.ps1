@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Prueba de punta a punta del kit Windows sobre un Windows real (runner de CI o VM), sin Assetto Corsa.
@@ -101,12 +101,32 @@ function Stop-RiceServer {
     $deadline = (Get-Date).AddSeconds(20)
     while ((Get-Date) -lt $deadline -and @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue).Count -gt 0) { Start-Sleep -Milliseconds 300 }
 }
+function Save-ServerLogs([string]$tag) {
+    # Launcher + server stdout/stderr go to evidence (the final leak scan covers them).
+    $n = 0
+    foreach ($dir in @((Join-Path $data 'logs'), (Join-Path $Root 'launcher'))) {
+        if (-not (Test-Path $dir)) { continue }
+        foreach ($f in Get-ChildItem $dir -File -Filter '*.log') {
+            Copy-Item $f.FullName (Join-Path $Evidence ("$tag-" + $f.Name)) -Force; $n++
+            $tail = @(Get-Content $f.FullName -Tail 15 -ErrorAction SilentlyContinue) -join "`n"
+            if ($tail) { Log "--- $($f.Name) (cola):`n$tail" }
+        }
+    }
+    Log "logs del servidor copiados: $n"
+}
 function Start-RiceServer([string]$secrets, [string]$hostName = '127.0.0.1', [switch]$Lan) {
-    $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$release\start-server.ps1`"", '-SecretsPath', "`"$secrets`"",
-              '-DatabasePath', "`"$db`"", '-HostAddress', $hostName, '-Port', $Port)
-    if ($Lan) { $args += '-AllowLanBind' }
-    $script:launcher = Start-Process powershell.exe -ArgumentList $args -PassThru -WindowStyle Hidden
-    if (-not (Wait-Http $hostName)) { throw "el servidor no respondió /tv en ${hostName}:$Port" }
+    $launchArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$release\start-server.ps1`"", '-SecretsPath', "`"$secrets`"",
+                    '-DatabasePath', "`"$db`"", '-HostAddress', $hostName, '-Port', $Port)
+    if ($Lan) { $launchArgs += '-AllowLanBind' }
+    $ldir = Join-Path $Root 'launcher'; New-Item -ItemType Directory -Force $ldir | Out-Null
+    $stamp = Get-Date -Format 'HHmmss'
+    $script:launcher = Start-Process powershell.exe -ArgumentList $launchArgs -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput (Join-Path $ldir "launcher-$stamp.out.log") -RedirectStandardError (Join-Path $ldir "launcher-$stamp.err.log")
+    if (-not (Wait-Http $hostName)) {
+        $state = if ($script:launcher.HasExited) { "lanzador terminó con código $($script:launcher.ExitCode)" } else { 'lanzador sigue vivo' }
+        Save-ServerLogs 'fail'
+        throw "el servidor no respondió /tv en ${hostName}:$Port ($state)"
+    }
 }
 function Tree-Hash([string]$path, [string]$exclude) {
     (Get-ChildItem -LiteralPath $path -Recurse -File | Where-Object { -not $_.FullName.StartsWith($exclude, [StringComparison]::OrdinalIgnoreCase) } |
@@ -250,7 +270,10 @@ Step 'configure-secrets.ps1 guarda tokens con DPAPI' {
     & "$release\configure-secrets.ps1" -SecretsPath $secretsA -StationIds @('ST01')
     $raw = [IO.File]::ReadAllText($secretsA)
     Assert (-not $raw.Contains($stationA) -and -not $raw.Contains($adminA)) 'token en texto plano en el XML'
-    Assert ($raw -match '<SS N="AdminToken">[0-9a-f]{100,}</SS>') 'AdminToken no está como SecureString DPAPI'
+    # Export-Clixml serializa la hashtable como <En><S N="Key">AdminToken</S><SS N="Value">hex</SS></En>.
+    Assert ($raw -match '<S N="Key">AdminToken</S>\s*<SS N="Value">[0-9a-f]{100,}</SS>') 'AdminToken no está como SecureString DPAPI'
+    $back = Import-Clixml $secretsA
+    Assert ($back.AdminToken -is [Security.SecureString] -and $back.StationTokens['ST01'] -is [Security.SecureString]) 'Import-Clixml no devuelve SecureString'
     $back = Import-Clixml $secretsA
     $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($back.AdminToken))
     Assert ($plain -ceq $adminA) 'descifrado DPAPI distinto'
@@ -404,6 +427,9 @@ function global:Read-Host { param([Parameter(Position=0)][object]$Prompt, [switc
         Start-ScheduledTask -TaskName RiceTrialsServer
         if (-not (Wait-Http '127.0.0.1' 60)) {
             $info = Get-ScheduledTaskInfo -TaskName RiceTrialsServer
+            Save-ServerLogs 'task'
+            try { Get-WinEvent -LogName 'Microsoft-Windows-TaskScheduler/Operational' -MaxEvents 30 -ErrorAction Stop | Where-Object { $_.Message -match 'RiceTrials' } |
+                    ForEach-Object { Log "evento $($_.Id): $($_.Message -replace '\s+',' ')" } } catch { Log "sin historial de tareas: $($_.Exception.Message)" }
             throw "la tarea no levantó el servidor; LastTaskResult=$($info.LastTaskResult)"
         }
         $owner = (Get-CimInstance Win32_Process -Filter "Name='RiceTrialsServer.exe'" | Select-Object -First 1 | Invoke-CimMethod -MethodName GetOwner).User
