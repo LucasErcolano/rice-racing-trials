@@ -16,6 +16,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+try:
+    from server import scoring
+except ImportError:  # executed as server/app.py or frozen with PyInstaller
+    import scoring
+
 ROOT = Path(__file__).resolve().parent.parent
 ID = re.compile(r'^[A-Za-z0-9_.-]{1,80}$')
 HEARTBEAT_TTL = timedelta(seconds=90)
@@ -146,7 +151,9 @@ class Store:
                 if not calibration:
                     raise Problem(409, 'admin calibration required')
                 events = json.loads(row['events'])
-                corrected = row['raw_ms'] + events.get('cone', 0) * 2000 + (events.get('off_course', 0) + len(events.get('slalom', []))) * 20000
+                corrected = scoring.corrected_ms('endurance', row['raw_ms'], events)
+                if corrected is None:
+                    raise Problem(409, 'stored events do not score under current rules')
             status = 'VALID' if decision == 'approve' else 'INVALID'
             reference = calibration['reference'] if calibration else row['calibration_reference']
             now = datetime.now(timezone.utc).isoformat()
@@ -183,19 +190,18 @@ class Store:
                 raise Problem(400, 'invalid slalom identifiers')
             if type(data.get('scoring_version')) is not int or data['scoring_version'] != 1:
                 raise Problem(400, 'unsupported scoring_version')
-            corrected = raw + events.get('cone', 0) * 2000 + (events.get('off_course', 0) + len(slalom)) * 20000
-            if status == 'VALID' and data.get('detector_ok') is not True:
-                status = 'DETECTOR_ERROR'
+            corrected = scoring.corrected_ms(event, raw, events)
+            status = scoring.resolve_status(status, data.get('detector_ok'))
             if status != 'VALID':
                 corrected = None
         elif event == 'skidpad':
             if 'oc' in events and events['oc'] or not all(type(events.get(k)) is int and 0 < events[k] <= 3600000 for k in ('right_ms', 'left_ms')):
                 raise Problem(400, 'skidpad requires right_ms and left_ms and no off-course')
-            corrected = (events['right_ms'] + events['left_ms']) // 2 + events.get('doo', 0) * 125
+            corrected = scoring.corrected_ms(event, raw, events)
         else:
             if 'right_ms' in events or 'left_ms' in events:
                 raise Problem(400, 'autocross does not accept skidpad splits')
-            corrected = raw + events.get('doo', 0) * 2000 + events.get('oc', 0) * 20000
+            corrected = scoring.corrected_ms(event, raw, events)
         if event != 'endurance' and status != 'valid':
             corrected = None
         payload = json.dumps(data, sort_keys=True, separators=(',', ':'))

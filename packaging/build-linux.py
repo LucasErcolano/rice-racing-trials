@@ -6,11 +6,11 @@ import re
 from zipfile import ZipFile, ZIP_DEFLATED
 
 ROOT = Path(__file__).resolve().parent.parent
-CLIENT = ('RiceTrials.lua', 'core.lua', 'manifest.ini')
+CLIENT = ('RiceTrials.lua', 'core.lua', 'scoring.lua', 'detectors.lua', 'manifest.ini')
 LEADERBOARD = ('admin.html', 'admin.js', 'tv.html', 'tv.js')
 SAFE_SOURCE = {
     'client': {'.lua', '.ini'}, 'server': {'.py'}, 'leaderboard': {'.html', '.js', '.css'},
-    'tests': {'.py'}, 'packaging': {'.py', '.ps1', '.yml'}, 'tools': {'.py'},
+    'tests': {'.py'}, 'rules': {'.json'}, 'packaging': {'.py', '.ps1', '.yml'}, 'tools': {'.py'},
 }
 
 
@@ -36,13 +36,14 @@ def build(output: Path, version: str):
     documentation += [(ROOT / 'README.md', 'README.md'), (ROOT / 'track-analysis.md', 'track-analysis.md')]
     entries['client'] += [(ROOT / 'docs/windows-validation.md', 'RiceTrials/WINDOWS_VALIDATION.md'),
                           (ROOT / 'tools/validation.py', 'tools/validation.py'),
-                          (ROOT / 'track/calibration/timing-landmarks.json', 'track/calibration/timing-landmarks.json')]
+                          (ROOT / 'track/calibration/timing-landmarks.json', 'track/calibration/timing-landmarks.json'),
+                          (ROOT / 'rules/scoring-v1.json', 'rules/scoring-v1.json')]
     entries['server'] += [(ROOT / 'docs/operator-guide.md', 'RiceTrialsServer/OPERATOR_GUIDE.md')] + [
         (ROOT / 'packaging' / name, name) for name in ('start-server.ps1', 'configure-secrets.ps1')]
     entries['complete'] = entries['client'] + entries['server'] + documentation + [
         (p, f'source/{p.relative_to(ROOT)}') for section, extensions in SAFE_SOURCE.items()
         for p in safe_files(section, extensions)]
-    for section, required in (('client', CLIENT), ('leaderboard', LEADERBOARD), ('server', ('app.py',))):
+    for section, required in (('client', CLIENT), ('leaderboard', LEADERBOARD), ('server', ('app.py', 'scoring.py'))):
         for name in required:
             if not (ROOT / section / name).is_file():
                 raise FileNotFoundError(ROOT / section / name)

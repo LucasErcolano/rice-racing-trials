@@ -1,0 +1,33 @@
+{
+  "rules_version": 1,
+  "units": "integer milliseconds",
+  "penalties_ms": {
+    "endurance": {"cone": 2000, "off_course": 20000, "slalom": 20000},
+    "autocross": {"doo": 2000, "oc": 20000},
+    "skidpad": {"doo": 125}
+  },
+  "statuses": ["VALID", "INVALID", "OUTLAP", "PENDING_REVIEW", "DETECTOR_ERROR"],
+  "fixtures": [
+    {"name": "endurance clean", "event": "endurance", "raw_ms": 70123, "events": {"cone": 0, "off_course": 0, "slalom": []}, "corrected_ms": 70123},
+    {"name": "endurance two cones", "event": "endurance", "raw_ms": 70123, "events": {"cone": 2, "off_course": 0, "slalom": []}, "corrected_ms": 74123},
+    {"name": "endurance off-course", "event": "endurance", "raw_ms": 70000, "events": {"cone": 0, "off_course": 1, "slalom": []}, "corrected_ms": 90000},
+    {"name": "endurance slalom miss", "event": "endurance", "raw_ms": 70000, "events": {"cone": 1, "off_course": 0, "slalom": ["S3"]}, "corrected_ms": 92000},
+    {"name": "endurance combined", "event": "endurance", "raw_ms": 68500, "events": {"cone": 3, "off_course": 2, "slalom": ["S1", "S4"]}, "corrected_ms": 154500},
+    {"name": "autocross clean", "event": "autocross", "raw_ms": 55555, "events": {"doo": 0, "oc": 0}, "corrected_ms": 55555},
+    {"name": "autocross doo+oc", "event": "autocross", "raw_ms": 55000, "events": {"doo": 1, "oc": 1}, "corrected_ms": 77000},
+    {"name": "skidpad average", "event": "skidpad", "raw_ms": 10000, "events": {"right_ms": 5101, "left_ms": 5200, "doo": 0}, "corrected_ms": 5150},
+    {"name": "skidpad cone", "event": "skidpad", "raw_ms": 10000, "events": {"right_ms": 5100, "left_ms": 5200, "doo": 2}, "corrected_ms": 5400},
+    {"name": "negative cone rejected", "event": "endurance", "raw_ms": 70000, "events": {"cone": -1, "off_course": 0, "slalom": []}, "corrected_ms": null},
+    {"name": "fractional raw rejected", "event": "autocross", "raw_ms": 55000.5, "events": {"doo": 0, "oc": 0}, "corrected_ms": null},
+    {"name": "skidpad with off-course rejected", "event": "skidpad", "raw_ms": 10000, "events": {"right_ms": 5100, "left_ms": 5200, "doo": 0, "oc": 1}, "corrected_ms": null},
+    {"name": "duplicate slalom gate rejected", "event": "endurance", "raw_ms": 70000, "events": {"cone": 0, "off_course": 0, "slalom": ["S1", "S1"]}, "corrected_ms": null},
+    {"name": "unknown event rejected", "event": "acceleration", "raw_ms": 4000, "events": {}, "corrected_ms": null}
+  ],
+  "status_fixtures": [
+    {"name": "valid needs detector", "proposed": "VALID", "detector_ok": false, "expected": "DETECTOR_ERROR"},
+    {"name": "valid detector ok", "proposed": "VALID", "detector_ok": true, "expected": "VALID"},
+    {"name": "outlap stays outlap", "proposed": "OUTLAP", "detector_ok": true, "expected": "OUTLAP"},
+    {"name": "pending stays pending", "proposed": "PENDING_REVIEW", "detector_ok": true, "expected": "PENDING_REVIEW"},
+    {"name": "unknown status is error", "proposed": "GREAT", "detector_ok": true, "expected": "DETECTOR_ERROR"}
+  ]
+}
