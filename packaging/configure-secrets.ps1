@@ -1,4 +1,4 @@
-# Windows DPAPI-bound secrets: run once under the same account that launches the server.
+﻿# Windows DPAPI-bound secrets: run once under the same account that launches the server.
 param(
     [Parameter(Mandatory=$true)][string]$SecretsPath,
     [Parameter(Mandatory=$true)][string[]]$StationIds

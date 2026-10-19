@@ -1,0 +1,116 @@
+"""Export ``route_config.lua`` for the CSP client (client/RiceTrials.lua ``script.configure``).
+
+The client only arms a route when ``verified == true``. This module writes
+``verified = false`` unless the operator explicitly approves with a flag and a name.
+"""
+import datetime
+import json
+import math
+import re
+from pathlib import Path
+
+
+def _finite(*values):
+    return all(isinstance(v, (int, float)) and math.isfinite(v) for v in values)
+
+
+def validate_gate(gate, label):
+    a, b = gate.get('a', {}), gate.get('b', {})
+    if not _finite(a.get('x'), a.get('z'), b.get('x'), b.get('z')):
+        raise ValueError(f'{label}: gate needs finite a.x, a.z, b.x, b.z')
+    if (a['x'], a['z']) == (b['x'], b['z']):
+        raise ValueError(f'{label}: degenerate gate')
+    if gate.get('direction') not in (1, -1):
+        raise ValueError(f'{label}: direction must be 1 or -1')
+    return {'a': {'x': float(a['x']), 'z': float(a['z'])}, 'b': {'x': float(b['x']), 'z': float(b['z'])},
+            'direction': gate['direction'], 'label': str(gate.get('label', label))[:40]}
+
+
+def checkpoints_from_ai(path, count, width, skip_m=30.0):
+    """Evenly spaced gates perpendicular to the AI line: CANDIDATES ONLY.
+
+    Direction follows the AI line order (the driving direction of fast_lane.ai).
+    """
+    if count < 1 or len(path) < 3 or width <= 0:
+        raise ValueError('need count >= 1, width > 0 and an AI path')
+    distances = [0.0]
+    for p, q in zip(path, path[1:]):
+        distances.append(distances[-1] + math.hypot(q[0] - p[0], q[1] - p[1]))
+    total = distances[-1]
+    usable = total - 2 * skip_m
+    if usable <= 0:
+        raise ValueError('AI path too short')
+    gates = []
+    for k in range(count):
+        target = skip_m + usable * (k + 0.5) / count
+        i = next(i for i, d in enumerate(distances) if d >= target)
+        i = min(max(i, 1), len(path) - 2)
+        tx, tz = path[i + 1][0] - path[i - 1][0], path[i + 1][1] - path[i - 1][1]
+        norm = math.hypot(tx, tz)
+        nx, nz = -tz / norm, tx / norm
+        a = {'x': round(path[i][0] + nx * width / 2, 3), 'z': round(path[i][1] + nz * width / 2, 3)}
+        b = {'x': round(path[i][0] - nx * width / 2, 3), 'z': round(path[i][1] - nz * width / 2, 3)}
+        before = {'x': path[i - 1][0], 'z': path[i - 1][1]}
+        value = (b['x'] - a['x']) * (before['z'] - a['z']) - (b['z'] - a['z']) * (before['x'] - a['x'])
+        gates.append({'a': a, 'b': b, 'direction': -1 if value > 0 else 1,
+                      'label': f'AI-{k + 1}@{round(distances[i])}m'})
+    return gates
+
+
+def _lua_string(value):
+    return '"' + re.sub(r'[^ -~]', '?', str(value)).replace('\\', '\\\\').replace('"', '\\"') + '"'
+
+
+def _lua_gate(gate):
+    return ('{a={x=%.4f, z=%.4f}, b={x=%.4f, z=%.4f}, direction=%d, label=%s}' %
+            (gate['a']['x'], gate['a']['z'], gate['b']['x'], gate['b']['z'], gate['direction'],
+             _lua_string(gate['label'])))
+
+
+def build(geometry, checkpoints, approve=False, operator=None, checkpoint_source='archivo de calibración',
+          event='endurance', now=None):
+    track = geometry['track']
+    if approve and not (operator and operator.strip()):
+        raise ValueError('approval requires --operator with the approving person name')
+    start = geometry.get('timing_gate')
+    if not start:
+        raise ValueError('geometry has no AC_TIME_0_L/R timing gate')
+    start = validate_gate({**start, 'label': 'start'}, 'start')
+    gates = [validate_gate(g, f'checkpoint {i + 1}') for i, g in enumerate(checkpoints)]
+    if not gates:
+        raise ValueError('at least one checkpoint is required')
+    asset_hash = geometry['source_sha256'].get('Physics.kn5')
+    if not asset_hash or not re.fullmatch(r'[0-9a-f]{64}', asset_hash):
+        raise ValueError('geometry lacks Physics.kn5 sha256')
+    stamp = (now or datetime.datetime.now(datetime.timezone.utc)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    verified = bool(approve)
+    lines = [
+        '-- route_config.lua generado por track/tool.py export-route (%s).' % stamp,
+        '-- Inicio: linea nativa AC_TIME_0_L/R; direccion: %s.' % geometry['timing_gate'].get('direction_source'),
+        '-- Checkpoints: %s.' % checkpoint_source,
+        ('-- APROBADO por el operador %s: verified=true habilita el cronometraje provisional.' % _lua_string(operator))
+        if verified else
+        '-- verified=false: el cliente NO arma la ruta hasta que un operador la apruebe (--approve --operator).',
+        'return {',
+        '  verified = %s,' % ('true' if verified else 'false'),
+        '  event = %s,' % _lua_string(event),
+        '  track_id = %s,' % _lua_string(track),
+        '  asset_hash = %s,' % _lua_string(asset_hash),
+        '  approved_by = %s,' % (_lua_string(operator.strip()) if verified else 'nil'),
+        '  generated_utc = %s,' % _lua_string(stamp),
+        '  checkpoint_source = %s,' % _lua_string(checkpoint_source),
+        '  route = {',
+        '    start = %s,' % _lua_gate(start),
+        '    checkpoints = {',
+    ]
+    lines += ['      %s,' % _lua_gate(g) for g in gates]
+    lines += ['    },', '  },', '}', '']
+    return '\n'.join(lines), {'verified': verified, 'start': start, 'checkpoints': gates,
+                              'approved_by': operator.strip() if verified else None, 'generated_utc': stamp}
+
+
+def load_checkpoints(path, track):
+    data = json.loads(Path(path).read_text(encoding='utf-8'))
+    if data.get('version') != 'route-checkpoints-v1' or data.get('track') != track:
+        raise ValueError('checkpoint file must be route-checkpoints-v1 for this track')
+    return data['checkpoints']

@@ -95,6 +95,7 @@ class BuildTests(unittest.TestCase):
                 'leaderboard/tv.html': 'tv', 'leaderboard/tv.js': 'js', 'leaderboard/admin.html': 'admin', 'leaderboard/admin.js': 'js',
                 'packaging/install.ps1': 'install', 'packaging/uninstall.ps1': 'uninstall',
                 'packaging/start-server.ps1': 'start', 'packaging/configure-secrets.ps1': 'configure',
+                'packaging/server-admin.ps1': 'admin',
                 'tools/validation.py': 'kit', 'tests/packaging_test.py': 'test',
                 'docs/windows-validation.md': 'validation', 'docs/operator-guide.md': 'guide',
                 'README.md': 'readme', 'track-analysis.md': 'analysis',
@@ -124,3 +125,58 @@ class BuildTests(unittest.TestCase):
                 self.assertNotIn('source/client/station_config.lua', names)
                 self.assertNotIn('source/server/token.json', names)
                 self.assertFalse(any('assets/' in n or '__pycache__' in n or n.endswith('.sqlite') for n in names))
+
+
+class TrackCalibrationPackageTests(unittest.TestCase):
+    def _root(self, tmp):
+        root = Path(tmp) / 'repo'
+        for name, data in {'track/tool.py': b'tool', 'track/patches/Apply-DummyPatch.ps1': b'ps1', 'timing/audit.py': b'audit',
+                           'tools/validation.py': b'kit', 'track/calibration/timing-landmarks.json': b'{}',
+                           'docs/track-tool.md': b'doc'}.items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_bytes(data)
+        return root
+
+    def test_calibration_zip_has_tools_and_derived_data_but_never_original_kn5(self):
+        import hashlib
+        build = module(ROOT / 'packaging/build-linux.py', 'build_linux_cal')
+        with tempfile.TemporaryDirectory() as tmp:
+            build.ROOT = self._root(tmp)
+            derived = Path(tmp) / 'derived'
+            patch = derived / 'patches/cand'
+            patch.mkdir(parents=True)
+            candidate = b'sc6969synthetic-candidate'
+            (patch / 'Dummy.kn5.candidate').write_bytes(candidate)
+            (patch / 'manifest.json').write_text(json.dumps({'candidate_sha256': hashlib.sha256(candidate).hexdigest(),
+                                                             'original_sha256': '0' * 64}))
+            (derived / 'geometry').mkdir()
+            (derived / 'geometry/T.geometry.json').write_text('{}')
+            (Path(tmp) / 'out1').mkdir()
+            target = build.build_calibration(Path(tmp) / 'out1', derived)
+            names = ZipFile(target).namelist()
+            self.assertIn('tools/track/tool.py', names)
+            self.assertIn('tools/timing/audit.py', names)
+            self.assertIn('calibration/timing-landmarks.json', names)
+            self.assertIn('derived/geometry/T.geometry.json', names)
+            self.assertIn('derived/patches/cand/Dummy.kn5.candidate', names)
+            self.assertIn('INTERNAL_DERIVED_DATA_DO_NOT_DISTRIBUTE.txt', names)
+            # A disguised original KN5 (no matching manifest hash) is refused.
+            (patch / 'Dummy.kn5.candidate').write_bytes(b'sc6969original-bytes')
+            with self.assertRaises(ValueError):
+                build.build_calibration(Path(tmp) / 'out1', derived)
+            (patch / 'Dummy.kn5.candidate').write_bytes(candidate)
+            (derived / 'Physics.kn5').write_bytes(b'sc6969')
+            with self.assertRaises(ValueError):
+                build.build_calibration(Path(tmp) / 'out1', derived)
+
+    def test_complete_zip_never_contains_derived_calibration_data(self):
+        build = module(ROOT / 'packaging/build-linux.py', 'build_linux_complete')
+        with tempfile.TemporaryDirectory() as tmp:
+            derived = Path(tmp) / 'derived'
+            derived.mkdir()
+            (derived / 'T.geometry.json').write_text('{}')
+            build.build(Path(tmp) / 'out', 'test', derived)
+            names = ZipFile(Path(tmp) / 'out/RiceRacing_Trials_Complete.zip').namelist()
+            self.assertIn('derived/T.geometry.json', ZipFile(Path(tmp) / 'out' / build.CALIBRATION_ZIP).namelist())
+            self.assertFalse(any(n.startswith('derived/') or 'track-calibration' in n or n.endswith(('.kn5', '.candidate'))
+                                 for n in names))

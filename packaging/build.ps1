@@ -1,4 +1,4 @@
-# Windows host: build server executable and three deployment ZIPs. No proprietary game assets.
+﻿# Windows host: build server executable and three deployment ZIPs. No proprietary game assets.
 param([string]$Version = '0.1.0')
 $ErrorActionPreference = 'Stop'
 if ($Version -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') { throw 'Invalid version' }
@@ -43,8 +43,8 @@ New-Item -ItemType Directory -Force $calibration | Out-Null
 Copy-Item (Join-Path $root 'track/calibration/timing-landmarks.json') $calibration
 $docs = Join-Path $stage 'docs'
 New-Item -ItemType Directory -Force $docs | Out-Null
-foreach ($name in @('deployment.md','windows-validation.md')) { Copy-Item (Join-Path $root "docs/$name") $docs }
-foreach ($name in @('install.ps1','uninstall.ps1','start-server.ps1','configure-secrets.ps1')) { Copy-Item (Join-Path $PSScriptRoot $name) $stage }
+foreach ($name in @('deployment.md','windows-validation.md','track-tool.md')) { Copy-Item (Join-Path $root "docs/$name") $docs }
+foreach ($name in @('install.ps1','uninstall.ps1','start-server.ps1','configure-secrets.ps1','server-admin.ps1')) { Copy-Item (Join-Path $PSScriptRoot $name) $stage }
 $serverStage = Join-Path $stage 'RiceTrialsServer'
 Copy-Item $server $serverStage -Recurse
 foreach ($kind in @('client','server','complete')) {
@@ -52,8 +52,8 @@ foreach ($kind in @('client','server','complete')) {
     if (Test-Path $zip) { Remove-Item $zip -Force }
     $items = switch ($kind) {
         client { @($client, $kit, (Join-Path $stage 'track'), $docs, (Join-Path $stage 'install.ps1'), (Join-Path $stage 'uninstall.ps1')) }
-        server { @($serverStage, (Join-Path $stage 'start-server.ps1'), (Join-Path $stage 'configure-secrets.ps1'), $docs) }
-        complete { @($client, $serverStage, $kit, (Join-Path $stage 'track'), $docs, (Join-Path $stage 'install.ps1'), (Join-Path $stage 'uninstall.ps1'), (Join-Path $stage 'start-server.ps1'), (Join-Path $stage 'configure-secrets.ps1')) }
+        server { @($serverStage, (Join-Path $stage 'start-server.ps1'), (Join-Path $stage 'configure-secrets.ps1'), (Join-Path $stage 'server-admin.ps1'), $docs) }
+        complete { @($client, $serverStage, $kit, (Join-Path $stage 'track'), $docs, (Join-Path $stage 'install.ps1'), (Join-Path $stage 'uninstall.ps1'), (Join-Path $stage 'start-server.ps1'), (Join-Path $stage 'configure-secrets.ps1'), (Join-Path $stage 'server-admin.ps1')) }
     }
     Compress-Archive -Path $items -DestinationPath $zip
     Get-FileHash $zip -Algorithm SHA256 | Format-List
