@@ -180,7 +180,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.call('POST', '/api/laps', self.endurance(), 'station-secret')[1]['status'], 'PENDING_REVIEW')
         review = {'station_id': 'ST01', 'lap_id': 'L1', 'decision': 'approve', 'reason': 'inspected footage', 'reviewer': 'chief'}
         self.assertEqual(self.call('POST', '/api/admin/reviews', review)[0], 401)
-        self.assertEqual(self.call('POST', '/api/admin/reviews', review, 'station-secret')[0], 401)
+        self.assertEqual(self.call('POST', '/api/admin/reviews', review, 'station-secret')[0], 403)
         self.assertEqual(self.call('POST', '/api/admin/reviews', review, 'admin-secret')[0], 409)
         self.certify()
         code, accepted = self.call('POST', '/api/admin/reviews', review, 'admin-secret')
@@ -220,7 +220,7 @@ class ServerTests(unittest.TestCase):
         self.setup_assignment()
         self.assertEqual(self.call('POST', '/api/admin/assignments', {'station_id': 'ST02', 'session_id': 'S1', 'pilot_id': 'P1'}, 'admin-secret')[0], 200)
         self.assertEqual(self.call('GET', '/api/station/assignment', token='second-secret')[1]['station_id'], 'ST02')
-        self.assertEqual(self.call('POST', '/api/laps', self.result(), 'second-secret')[0], 401)
+        self.assertEqual(self.call('POST', '/api/laps', self.result(), 'second-secret')[0], 403)
         self.assertEqual(self.call('POST', '/api/laps', self.result(), 'station-secret')[0], 200)
         self.assertEqual(self.call('POST', '/api/laps', self.result(station_id='ST02', raw_ms=59000), 'second-secret')[0], 200)
         self.assertEqual(self.call('POST', '/api/laps', self.result(station_id='ST02', raw_ms=59000), 'second-secret')[1]['duplicate'], True)

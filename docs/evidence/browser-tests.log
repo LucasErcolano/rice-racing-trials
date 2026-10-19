@@ -1,0 +1,28 @@
+# Rice Racing browser tests (Playwright 1.64.0, Python 3.12.3)
+# fecha: 2026-10-19T02:35:28-03:00  host: Linux 6.8.0-139-generic
+# comando: RICE_BROWSER_EVIDENCE=1 python -m unittest tests.browser.test_browser -v
+02:35:29 chromium 156.0.8078.4; evidence=/home/lucas/rr-eval/rice-racing-trials/docs/evidence/screenshots
+test_admin_full_flow (tests.browser.test_browser.BrowserTests.test_admin_full_flow) ... 02:35:31 screenshot /home/lucas/rr-eval/rice-racing-trials/docs/evidence/screenshots/admin-full-flow.png
+02:35:32 screenshot /home/lucas/rr-eval/rice-racing-trials/docs/evidence/screenshots/tv-after-admin-approval.png
+02:35:32 admin full flow ok: login, session, pilots, reassignment, calibration, penalties, approval, export, backup
+ok
+test_tv_auto_refresh_and_session_change (tests.browser.test_browser.BrowserTests.test_tv_auto_refresh_and_session_change) ... 02:35:34 screenshot /home/lucas/rr-eval/rice-racing-trials/docs/evidence/screenshots/tv-auto-refresh.png
+02:35:34 tv auto refresh ok: new leader appeared without reload
+02:35:34 screenshot /home/lucas/rr-eval/rice-racing-trials/docs/evidence/screenshots/tv-session-change.png
+02:35:34 tv session change ok
+ok
+test_tv_connection_lost_indicator (tests.browser.test_browser.BrowserTests.test_tv_connection_lost_indicator) ... 02:35:36 screenshot /home/lucas/rr-eval/rice-racing-trials/docs/evidence/screenshots/tv-server-down.png
+02:35:37 tv connection indicator ok: offline then recovered
+ok
+test_tv_ranking_order_and_1080p (tests.browser.test_browser.BrowserTests.test_tv_ranking_order_and_1080p) ... 02:35:38 screenshot /home/lucas/rr-eval/rice-racing-trials/docs/evidence/screenshots/tv-ranking-1080p.png
+02:35:38 tv ranking ok: 16 rows, leader Olga FerrerS1-P15 60.450
+ok
+test_tv_unarmed_banner_never_shows_official_times (tests.browser.test_browser.BrowserTests.test_tv_unarmed_banner_never_shows_official_times) ... 02:35:39 screenshot /home/lucas/rr-eval/rice-racing-trials/docs/evidence/screenshots/tv-unarmed-banner.png
+02:35:39 tv unarmed banner ok
+ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 10.795s
+
+OK
+# exit: 0

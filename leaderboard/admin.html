@@ -1,11 +1,99 @@
 <!doctype html>
-<html lang="en"><meta charset="utf-8"><title>Rice Racing · Control</title><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>body{font:18px system-ui;background:#111827;color:#f8fafc;max-width:900px;margin:2rem auto;padding:1rem}input,select,button{font:inherit;padding:.4rem;margin:.2rem;background:#fff;color:#111}fieldset{margin:1rem 0;border:1px solid #64748b}a{color:#67e8f9}li{margin:.4rem 0}small{color:#cbd5e1}</style>
-<h1>Rice Racing · Admin</h1><p>Enter the admin bearer token on a trusted machine. It stays in this tab only.</p>
-<label>Token <input id="token" type="password" autocomplete="off"></label>
-<fieldset><legend>Session</legend><input id="session" placeholder="Session ID"><input id="session-name" placeholder="Name"><button id="save-session">Save session</button></fieldset>
-<fieldset><legend>Pilot</legend><input id="pilot" placeholder="Pilot ID"><input id="pilot-name" placeholder="Name"><button id="save-pilot">Save pilot</button></fieldset>
-<fieldset><legend>Assign station</legend><input id="station" placeholder="Station ID"><button id="assign">Assign pilot/session above</button></fieldset>
-<fieldset><legend>Calibration provenance (admin inspected, per station/config)</legend><input id="track-config" placeholder="Track config ID"><input id="reference" placeholder="Inspection record reference"><input id="operator" placeholder="Inspector"><label><input id="active" type="checkbox" checked>Active</label><button id="calibrate">Save calibration</button><small>Client calibration flags alone never certify an endurance lap.</small></fieldset>
-<fieldset><legend>Provisional review</legend><button id="refresh">Refresh session</button><ul id="pending"></ul><input id="lap-id" placeholder="Lap ID"><select id="decision"><option value="approve">Approve</option><option value="reject">Reject</option></select><input id="reviewer" placeholder="Reviewer"><input id="reason" placeholder="Reason / evidence"><button id="review">Submit review</button><h3>Audit trail</h3><ul id="audit"></ul></fieldset>
-<button id="backup">Create SQLite backup</button><button id="export">Download session CSV</button><button id="export-reviews">Download review audit CSV</button><p id="message" role="status"></p><p><a href="/tv">TV leaderboard</a></p><script src="/admin.js"></script></html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Rice Racing · Administración</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+<header class="top">
+  <h1>Rice Racing · Administración</h1>
+  <div class="login">
+    <label>Token admin <input id="token" type="password" autocomplete="off" placeholder="Pegar token"></label>
+    <button id="login" type="button">Entrar</button>
+    <button id="logout" type="button" class="secondary">Salir</button>
+    <span id="auth-state" class="pill" data-state="out">Sin autenticar</span>
+  </div>
+  <a href="/tv" target="_blank" rel="noopener">Abrir pantalla TV</a>
+</header>
+<p class="hint">El token queda sólo en esta pestaña (sessionStorage). Usar únicamente en una computadora de confianza.</p>
+<div id="armed-banner" class="banner" hidden>SCORING NO COMISIONADO: el servidor no aprueba ni rankea vueltas (resultados provisionales, no oficiales).</div>
+<p id="message" class="message" role="status" aria-live="polite"></p>
+
+<main class="panels">
+  <section class="panel" id="panel-sessions">
+    <h2>Sesiones</h2>
+    <div class="row"><input id="session" placeholder="ID de sesión"><input id="session-name" placeholder="Nombre"><label class="check"><input id="session-activate" type="checkbox" checked> Marcar activa</label><button id="save-session" type="button">Crear / renombrar</button></div>
+    <table class="data"><thead><tr><th>ID</th><th>Nombre</th><th>Creada</th><th>Estado</th><th></th></tr></thead><tbody id="sessions"></tbody></table>
+    <div class="row"><label>Sesión de trabajo <select id="current-session"></select></label><button id="refresh" type="button" class="secondary">Actualizar todo</button></div>
+  </section>
+
+  <section class="panel" id="panel-pilots">
+    <h2>Pilotos</h2>
+    <div class="row"><input id="pilot" placeholder="ID de piloto"><input id="pilot-name" placeholder="Nombre"><button id="save-pilot" type="button">Registrar</button></div>
+    <table class="data"><thead><tr><th>ID</th><th>Nombre</th></tr></thead><tbody id="pilots"></tbody></table>
+  </section>
+
+  <section class="panel" id="panel-assign">
+    <h2>Asignación de estaciones</h2>
+    <div class="row"><select id="assign-station" aria-label="Estación"></select><select id="assign-pilot" aria-label="Piloto"></select><button id="assign" type="button">Asignar a la sesión de trabajo</button></div>
+    <h3>Historial de asignaciones (reasignaciones resaltadas)</h3>
+    <table class="data"><thead><tr><th>Rev.</th><th>Estación</th><th>Sesión</th><th>Piloto</th><th>Anterior</th><th>Fecha (UTC)</th></tr></thead><tbody id="assignment-history"></tbody></table>
+  </section>
+
+  <section class="panel wide" id="panel-stations">
+    <h2>Estaciones y detectores</h2>
+    <table class="data"><thead><tr><th>Estación</th><th>Conexión</th><th>Último heartbeat</th><th>Sesión / piloto</th><th>Rev.</th><th>Última vuelta</th><th>Detector</th><th>Resumen detector</th><th>Errores sync</th></tr></thead><tbody id="stations"></tbody></table>
+  </section>
+
+  <section class="panel wide" id="panel-laps">
+    <h2>Revisión de vueltas</h2>
+    <div class="row"><label class="check"><input id="only-pending" type="checkbox" checked> Sólo pendientes / error de detector</label></div>
+    <table class="data"><thead><tr><th>Estación</th><th>Vuelta</th><th>N°</th><th>Piloto</th><th>Prueba</th><th>Estado</th><th>Bruto</th><th>Corregida</th><th>Penalidades</th><th>Detector</th><th>Calib.</th><th></th></tr></thead><tbody id="pending"></tbody></table>
+    <div class="forms">
+      <fieldset><legend>Decisión (aprobar / rechazar)</legend>
+        <div class="row"><input id="station" placeholder="Estación"><input id="lap-id" placeholder="ID de vuelta"><select id="decision"><option value="approve">Aprobar</option><option value="reject">Rechazar</option></select></div>
+        <div class="row"><input id="reviewer" placeholder="Revisor"><input id="reason" placeholder="Motivo / evidencia"><button id="review" type="button">Registrar decisión</button></div>
+      </fieldset>
+      <fieldset><legend>Penalidades (recalcula el corregido en el servidor)</legend>
+        <div class="row"><label>Conos <input id="pen-cone" type="number" min="0" max="100"></label><label>Fuera de pista <input id="pen-off" type="number" min="0" max="100"></label><label>Slalom perdidos <input id="pen-slalom" placeholder="S1,S4"></label></div>
+        <div class="row"><label>DOO <input id="pen-doo" type="number" min="0" max="100"></label><label>OC <input id="pen-oc" type="number" min="0" max="100"></label></div>
+        <div class="row"><input id="pen-reviewer" placeholder="Revisor"><input id="pen-reason" placeholder="Motivo"><button id="save-penalties" type="button">Guardar penalidades</button></div>
+        <p class="hint">Ajustar penalidades nunca cambia el estado: una vuelta sólo pasa a VALID por decisión de aprobación con scoring comisionado.</p>
+      </fieldset>
+    </div>
+    <h3>Auditoría de revisiones</h3>
+    <ul id="audit" class="audit"></ul>
+  </section>
+
+  <section class="panel" id="panel-calibration">
+    <h2>Calibración (inspeccionada por admin)</h2>
+    <div class="row"><select id="cal-station" aria-label="Estación"></select><input id="track-config" placeholder="Config. de pista"></div>
+    <div class="row"><input id="reference" placeholder="Referencia del acta de inspección"><input id="operator" placeholder="Inspector"><label class="check"><input id="active" type="checkbox" checked> Activa</label><button id="calibrate" type="button">Guardar calibración</button></div>
+    <p class="hint">Los flags de calibración del cliente por sí solos nunca certifican una vuelta.</p>
+    <table class="data"><thead><tr><th>Estación</th><th>Pista</th><th>Referencia</th><th>Inspector</th><th>Activa</th><th>Actualizada</th></tr></thead><tbody id="calibrations"></tbody></table>
+  </section>
+
+  <section class="panel" id="panel-sync">
+    <h2>Errores de sincronización</h2>
+    <table class="data"><thead><tr><th>Fecha (UTC)</th><th>Estación</th><th>Ruta</th><th>HTTP</th><th>Causa</th><th>Vuelta</th></tr></thead><tbody id="sync-errors"></tbody></table>
+  </section>
+
+  <section class="panel" id="panel-export">
+    <h2>Exportación y backup</h2>
+    <div class="row"><label class="check"><input id="export-all" type="checkbox"> Todas las sesiones</label></div>
+    <div class="row buttons"><button id="export" type="button">Vueltas CSV</button><button id="export-reviews" type="button">Revisiones CSV</button><button id="export-assignments" type="button">Asignaciones CSV</button><button id="export-calibrations" type="button">Calibraciones CSV</button><button id="export-json" type="button">Exportación completa JSON</button></div>
+    <div class="row"><button id="backup" type="button">Crear backup SQLite</button></div>
+    <ul id="backups" class="audit"></ul>
+    <p class="hint">Restaurar se hace con el servidor detenido: <code>python server/app.py --db trials.sqlite --restore archivo.sqlite</code>.</p>
+  </section>
+
+  <section class="panel" id="panel-diagnostics">
+    <h2>Diagnóstico del servidor</h2>
+    <dl id="diagnostics" class="diag"></dl>
+  </section>
+</main>
+<script src="/admin.js"></script>
+</body>
+</html>
