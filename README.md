@@ -16,9 +16,14 @@
 
 ## Pruebas Linux
 
+Requieren un venv con `lupa` (y `playwright` para las pruebas de navegador):
+
 ```sh
-python3 -m unittest discover -s tests -p '*test.py' -v
-python3 -m unittest discover -s client/tests -p 'test_*.py' -v
+V=<venv>/bin/python
+$V -m unittest discover -s tests -p '*test*.py'
+(cd client/tests && $V -m unittest discover -p 'test_*.py')
 ```
+
+Estado completo y pendientes: `docs/final-status.md`. Resultados: `docs/test-report.md`.
 
 Ver `docs/zip-audit.md`, `docs/limitations.md` y `docs/windows-validation.md` antes de cualquier despliegue. El criterio de habilitación oficial es una prueba real de pista, vehículo, conos, outlap, geometría y red en cada estación, no solamente que pasen tests Linux.

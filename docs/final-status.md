@@ -1,22 +1,38 @@
-# Deployment status — integration handoff
+# Estado final de la entrega
 
-**BLOCKED for official trials.** No Windows runtime, AC/CSP rig, live calibration or service reboot validation has been performed. Do not publish release ZIPs until the parent integration pass and Windows operator sign-off.
+**BLOQUEADO para trials oficiales.** Nada se ejecutó dentro de Assetto Corsa con CSP en Windows. El servidor de producción arranca desarmado (`scoring_armed=False`): ninguna vuelta llega a `VALID` ni entra al ranking hasta completar la validación en Windows descrita abajo. No publicar los ZIP de release antes de esa validación.
 
-## Prepared
+## Hecho y probado en Linux
 
-- Windows PyInstaller build template stages the Lua app, read-only validation kit, offline landmark hashes, deployment notes, frozen server, DPAPI secret setup and foreground server launcher. Manually activated CI template runs tests, checks archives for common proprietary/secret/database formats and smoke-tests `/tv` on a Windows runner; it does **not** publish a release.
-- Client installer hashes externally obtained archives and checks installed folder IDs, KN5/physics presence and a CSP-loader candidate. Preflight is read-only. On installation it prompts for a station token (masked), writes `apps/lua/RiceTrials/station_config.lua` with Lua-safe byte escaping and fields `server_url`, `station_id`, `station_token`, and applies restrictive NTFS ACLs; this local plaintext file is excluded from both package builders. Upgrade requires an explicit external backup directory; staging/rollback preserves the previous app on failure. No third-party assets are extracted, installed or included. Client bootstrap now calls `require('station_config')` in a guarded first update; CSP module resolution remains unverified.
-- Inventory kit hashes installed Physics/Dummy KN5 and car physics file and compares track landmark hashes to offline evidence; its `ready` result is always false, pending in-game identity, layout, geometry, timing and network attestation.
-- Server startup design uses Windows DPAPI CLIXML under the same dedicated account, a durable absolute DB outside release media, loopback binding, and Task Scheduler setup instructions. It is **not** an installed Windows Service.
+**Cliente CSP (`client/`)**
+- `RiceTrials.lua`: autostart desde `station_config.lua`, asignación autenticada con revisión, máquina de outlap, detección de reset, teleport y reinicio de sesión, y payload con `lap_number`, `rules_version`, `calibration_version` y `client_timestamp`. Las vueltas salen siempre como `PENDING_REVIEW`.
+- `journal.lua`: cola persistente en dos archivos alternados con número de secuencia, checksum FNV-1a y relectura. Si ambos están corruptos bloquea el envío y deja una copia en cuarentena. Migra la cola vieja de `ac.storage`. Sin `io`, vuelve a `ac.storage` y lo muestra como `degraded`.
+- `hud.lua`: piloto, fase, tiempo, penalidades («sin evidencia» cuando falta), sincronización y estado de la cola. Si falla, la ventana cae a texto plano.
+- `diagnostics.lua`: registro JSONL opcional (`diagnostics = true`), con un máximo de 2 MB por archivo y dos archivos.
+- `scoring.lua`, `server/scoring.py` y `rules/scoring-v1.json`: una sola definición de penalidades, con paridad probada.
 
-## Verified in Linux
+**Servidor (`server/`, `leaderboard/`)**
+- HTTP con la biblioteca estándar y SQLite (WAL, migraciones versionadas), historial de asignaciones, sesión activa, errores de sincronización, revisión de penalidades con auditoría, export JSON y CSV, backup, `--check` y `--restore`.
+- `/tv` (leaderboard 1080p con auto-refresco) y `/admin` (flujo completo sin comandos), probados con Playwright.
 
-- Con el venv temporal que contiene `lupa`, la suite completa pasó: **30 tests de servidor/integración/packaging y 29 tests de cliente Lua**. El E2E unió Lua con HTTP real, SQLite, reenvío idempotente tras pérdida de respuesta, reasignación y leaderboard vacío.
-- El servidor real arranca con scoring desarmado para los tres eventos y rechaza aprobación a `VALID`. El cálculo con scoring habilitado se ejercita únicamente en tests de contrato. El inventario conserva `ready: false`.
-- El build Linux source-only y su verificación de integridad y exclusiones se efectúan en la pasada final de integración; no se ejecutó la compilación Windows.
+**Pista (`track/`, `timing/`)**
+- Lectura de KN5, extracción de geometría y dummies, vistas 2D (`docs/evidence/track/`), exportación de rutas y análisis de telemetría.
+- Parche candidato de `Dummy.kn5` para FSAEJ Endurance: mueve `AC_START_0` 8 m después de la línea de tiempo para que la salida de pits no genere una vuelta falsa de unos 18 s. Se genera desde el ZIP original sin modificarlo; `Apply-DummyPatch.ps1` aplica, revierte y verifica hashes. **Candidato no verificado en juego.**
 
-## Remaining gates
+**Windows (`packaging/`, `.github/workflows/`)**
+- Instalador de estación con preflight de sólo lectura, verificación SHA-256 de los archivos de terceros, token pedido con `Read-Host -AsSecureString`, ACL restrictivas y rollback. Desinstalador, servidor portable con secretos en DPAPI, script de administración, kit de validación (`tools/validation.py`) y workflow de GitHub Actions de disparo manual que no publica releases.
+- Los 7 scripts PowerShell parsean sin errores con pwsh 7. Es sólo sintaxis: no se ejecutaron en Windows.
 
-1. Integrate sibling changes, rerun full tests and package audits, then build and exercise the Windows ZIPs and PowerShell scripts on an actual Windows runner. Linux cannot validate PowerShell syntax/runtime, DPAPI behavior, PyInstaller output, scheduled startup, or uninstall rollback in Windows.
-2. On each rig perform the signed checklist in `docs/windows-validation.md`: approved asset archive/hash provenance, installed hashes, AC/CSP exact build, selected track/layout/car, Lua loader, surveyed X/Z directional gates and ordered route, outlap, independent video/timing, penalties, server authorization/ack/retry/read-back and backup/restore.
-3. Do not enable automatic official scoring or claim commissioning until those gates and the sporting protocol are approved. Upload/publish artifacts only after integration and sign-off.
+**Paquetes (`dist/`, generados con `packaging/build-linux.py`)**: `RiceRacing_Trials_Client.zip`, `RiceRacing_Trials_Server.zip`, `RiceRacing_Trials_Complete.zip` y `RiceRacing_Track_Calibration.zip`. Contienen sólo código propio y documentación: ningún KN5, ACD, auto, pista, credencial ni base de datos.
+
+Pruebas: ver `docs/test-report.md` (88 + 101, todas OK).
+
+## Qué falta, en orden
+
+1. **Compilar en Windows** (el workflow o `build.ps1`) y ejercitar instalador, desinstalador, DPAPI, servidor empaquetado y tarea programada.
+2. **En una estación con AC y CSP**: confirmar que la app carga, que `io.save` e `io.load` escriben en `apps/lua/RiceTrials/state/`, que `web.post` llega al servidor, que el HUD se ve y que `ac.onCarJumped` y `resetCounter` disparan como se espera. El kit de validación y `docs/windows-validation.md` guían cada paso.
+3. **Probar el parche de `Dummy.kn5` en juego**: salir de pits y verificar que no aparece la vuelta de 18 s y que la primera vuelta completa se cronometra bien. Si falla, revertir con `Apply-DummyPatch.ps1 -Revert`.
+4. **Calibrar la ruta** (gates y checkpoints medidos en la pista real) y firmar la checklist de `docs/windows-validation.md` en cada estación.
+5. Recién entonces armar el scoring (`scoring_armed=True`), con el protocolo deportivo aprobado. Los conos individuales no tienen detección automática porque las mallas del KN5 de FSAEJ están fusionadas; esas penalidades se cargan por revisión en `/admin`.
+
+No se subió nada a GitHub ni se publicó ningún artefacto.
