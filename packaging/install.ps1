@@ -222,7 +222,12 @@ if ($Rollback) {
         $saved = P $backupRoot @('RiceTrials-before-rollback-' + (Get-Date -Format 'yyyyMMddTHHmmss') + '-' + [guid]::NewGuid().ToString('N'))
         Move-Item -LiteralPath $target -Destination $saved -ErrorAction Stop
     }
-    try { Copy-Item -LiteralPath $rollbackRoot -Destination $target -Recurse -ErrorAction Stop }
+    try {
+        Copy-Item -LiteralPath $rollbackRoot -Destination $target -Recurse -ErrorAction Stop
+        # Copy-Item creates new files that inherit the apps\lua ACL: re-protect the credential file.
+        $restoredConfig = P $target @('station_config.lua')
+        if (Test-Path -LiteralPath $restoredConfig -PathType Leaf) { Protect-StationConfig $restoredConfig }
+    }
     catch {
         if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
         if ($saved) { Move-Item -LiteralPath $saved -Destination $target }

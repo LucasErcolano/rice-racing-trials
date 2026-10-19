@@ -99,6 +99,19 @@ jobs:
           }
           & $server --db $db --check
           if ($LASTEXITCODE -ne 0) { throw "--check failed ($LASTEXITCODE)" }
+      - name: E2E on real Windows (installer, ACL, DPAPI, server-admin, scheduled task; AC root is a fixture)
+        shell: powershell
+        run: |
+          $zip = "dist/RiceTrials-$env:RICE_VERSION-complete-win64.zip"
+          ./tests/windows/e2e-windows.ps1 -CompleteZip $zip -Evidence (Join-Path $env:RUNNER_TEMP 'e2e-evidence')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rice-trials-e2e-evidence-${{ inputs.version }}
+          path: ${{ runner.temp }}/e2e-evidence
+          if-no-files-found: warn
+          retention-days: 14
       - name: Source-only packages (track calibration tools without derived data)
         shell: pwsh
         run: python packaging/build-linux.py --version $env:RICE_VERSION --output dist/source --track-calibration dist/none
