@@ -1,5 +1,6 @@
 # Windows packaging: tests, PyInstaller server, three ZIPs, smoke test of the frozen exe, artifacts.
 # Manual trigger only. It never touches game assets (no KN5/ACD in the repo) and needs no secrets.
+# Private repo: run manually from the Actions tab or with gh workflow run.
 name: Windows package
 on:
   workflow_dispatch:
