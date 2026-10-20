@@ -8,13 +8,15 @@
   -Action RegisterTask      tarea programada "Al iniciar el sistema" que ejecuta start-server.ps1 (pide la cuenta de forma
                             interactiva con Get-Credential; la contraseña nunca va en la línea de comandos).
   -Action UnregisterTask    borra la tarea.
+  -Action Stop              detiene la tarea, el supervisor start-server.ps1 y el exe, y verifica que el puerto quede libre
+                            (matar sólo RiceTrialsServer.exe no alcanza: el supervisor lo relanza).
   -Action Backup            backup en caliente vía /api/admin/backup (token admin pedido con -AsSecureString).
   -Action Check             RiceTrialsServer.exe --db <db> --check (offline, integridad SQLite).
   -Action Restore           detiene la tarea, ejecuta RiceTrialsServer.exe --db <db> --restore <archivo>, reanuda la tarea.
                             El servidor guarda una copia pre-restore en <db>\..\backups antes de reemplazar.
 #>
 param(
-    [Parameter(Mandatory=$true)][ValidateSet('NetworkCheck','FirewallRule','RegisterTask','UnregisterTask','Backup','Check','Restore')][string]$Action,
+    [Parameter(Mandatory=$true)][ValidateSet('NetworkCheck','FirewallRule','RegisterTask','UnregisterTask','Stop','Backup','Check','Restore')][string]$Action,
     [string]$DatabasePath,
     [string]$SecretsPath,
     [string]$BackupFile,
@@ -86,6 +88,21 @@ public static class Lsa {
     [RiceTrials.Lsa]::AddRight($bytes, 'SeBatchLogonRight')
     Write-Host "Derecho 'Iniciar sesión como proceso por lotes' (SeBatchLogonRight) otorgado a $userName ($($sid.Value))."
 }
+function Stop-RiceServer {
+    # Supervisor first (it would relaunch the exe), then the exe. Only processes of THIS release are touched.
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($task -and $task.State -eq 'Running') { Stop-ScheduledTask -TaskName $TaskName }
+    $launcherScript = Join-Path $scriptRoot 'start-server.ps1'
+    Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" |
+        Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf($launcherScript, [StringComparison]::OrdinalIgnoreCase) -ge 0 } |
+        ForEach-Object { Write-Host "Deteniendo supervisor pid $($_.ProcessId)"; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    $exeFull = [IO.Path]::GetFullPath($ServerExe)
+    Get-Process RiceTrialsServer -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ([IO.Path]::GetFullPath($_.Path) -ieq $exeFull) } |
+        ForEach-Object { Write-Host "Deteniendo servidor pid $($_.Id)"; Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+    $deadline = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $deadline -and @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue).Count -gt 0) { Start-Sleep -Milliseconds 500 }
+    if (@(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue).Count -gt 0) { throw "Something still listens on $Port after stopping" }
+}
 function Quote([string]$value) { return '"' + $value + '"' }
 
 switch ($Action) {
@@ -137,6 +154,10 @@ switch ($Action) {
         $credential = $null
         Write-Host "Tarea '$TaskName' registrada (al iniciar el sistema, reinicio ante fallo). Probar: Start-ScheduledTask -TaskName $TaskName; reiniciar el equipo y revisar el historial."
     }
+    'Stop' {
+        Stop-RiceServer
+        Write-Host "Servidor detenido; nada escucha en $Port. Para volver a arrancarlo: Start-ScheduledTask -TaskName $TaskName"
+    }
     'UnregisterTask' {
         Assert-Administrator
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
@@ -160,12 +181,13 @@ switch ($Action) {
         Assert-DatabasePath
         if (-not $BackupFile -or -not (Test-Path -LiteralPath $BackupFile -PathType Leaf)) { throw '-BackupFile must be an existing .sqlite backup' }
         $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
-        if ($task -and $task.State -eq 'Running') { Stop-ScheduledTask -TaskName $TaskName; Start-Sleep -Seconds 2 }
+        $wasRunning = $task -and $task.State -eq 'Running'
+        if ($wasRunning) { Stop-RiceServer }
         if (@(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue).Count -gt 0) { throw "Something still listens on $Port; stop the server before restoring" }
         $answer = Read-Host "Restaurar $BackupFile sobre $DatabasePath? Escriba RESTORE"
         if ($answer -cne 'RESTORE') { throw 'Cancelled' }
         Invoke-Server @('--db', (Quote $DatabasePath), '--restore', (Quote $BackupFile))
         Invoke-Server @('--db', (Quote $DatabasePath), '--check')
-        if ($task) { Start-ScheduledTask -TaskName $TaskName; Write-Host "Tarea '$TaskName' reanudada." }
+        if ($wasRunning) { Start-ScheduledTask -TaskName $TaskName; Write-Host "Tarea '$TaskName' reanudada." }
     }
 }

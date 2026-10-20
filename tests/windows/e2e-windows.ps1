@@ -474,6 +474,17 @@ function global:Read-Host { param([Parameter(Position=0)][object]$Prompt, [switc
         Assert ((Get-ScheduledTask -TaskName RiceTrialsServer).State -eq 'Running') 'la tarea dejó de estar Running'
         "el servidor volvió solo (pid $pid2, como $owner)"
     }
+    Step 'server-admin.ps1 Stop detiene tarea, supervisor y exe (sin relanzar)' {
+        & "$release\server-admin.ps1" -Action Stop -Port $Port
+        Start-Sleep -Seconds 25   # más que RestartDelaySeconds: si el supervisor siguiera vivo, el exe volvería
+        Assert (-not (Get-Process RiceTrialsServer -ErrorAction SilentlyContinue)) 'el exe volvió después de Stop'
+        Assert (@(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue).Count -eq 0) "algo escucha en $Port"
+        Assert ((Get-ScheduledTask -TaskName RiceTrialsServer).State -ne 'Running') 'la tarea sigue Running'
+        Start-ScheduledTask -TaskName RiceTrialsServer
+        Assert (Wait-Http '127.0.0.1' 60) 'la tarea no volvió a arrancar después de Stop'
+        & "$release\server-admin.ps1" -Action Stop -Port $Port
+        'puerto libre 25 s después de Stop; la tarea vuelve a arrancar con Start-ScheduledTask'
+    }
     Step 'UnregisterTask y limpieza de la cuenta' {
         Stop-ScheduledTask -TaskName RiceTrialsServer -ErrorAction SilentlyContinue
         Stop-RiceServer
