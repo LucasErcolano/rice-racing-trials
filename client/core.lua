@@ -13,7 +13,10 @@ function core.crossed(previous, current, line, direction)
   local z = previous.z + t*(current.z-previous.z)
   local dx, dz = line.b.x-line.a.x, line.b.z-line.a.z
   local projected = ((x-line.a.x)*dx+(z-line.a.z)*dz)/(dx*dx+dz*dz)
-  return projected >= 0 and projected <= 1
+  -- Second value: fraction of the previous->current segment where the line was crossed,
+  -- so callers can time the crossing inside the frame instead of at its end.
+  if projected >= 0 and projected <= 1 then return true, t end
+  return false
 end
 -- A crossing count alone cannot distinguish outlap, reversal or route completion.
 -- No surveyed route/checkpoint evidence is available in the supplied assets.
@@ -37,8 +40,9 @@ function core.route_machine(route)
   local machine = {phase='waiting', next_checkpoint=1}
   function machine:observe(previous, current)
     if self.phase == 'waiting' then
-      if core.crossed(previous, current, route.start, route.start.direction) then
-        self.phase = 'outlap'; return 'OUTLAP'
+      local hit, t = core.crossed(previous, current, route.start, route.start.direction)
+      if hit then
+        self.phase = 'outlap'; return 'OUTLAP', t
       end
       return nil
     end
@@ -47,13 +51,14 @@ function core.route_machine(route)
       self.next_checkpoint = self.next_checkpoint + 1
       return 'CHECKPOINT'
     end
-    if core.crossed(previous, current, route.start, route.start.direction) then
+    local hit, t = core.crossed(previous, current, route.start, route.start.direction)
+    if hit then
       if self.next_checkpoint <= #route.checkpoints then return nil end
       self.next_checkpoint = 1
       if self.phase == 'outlap' then
-        self.phase = 'timed'; return 'OUTLAP_COMPLETE'
+        self.phase = 'timed'; return 'OUTLAP_COMPLETE', t
       end
-      return 'COMPLETE'
+      return 'COMPLETE', t
     end
     return nil
   end

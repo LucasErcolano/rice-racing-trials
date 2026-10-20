@@ -125,6 +125,71 @@ class Resets(unittest.TestCase):
             move(lua, position, z)
         self.assertEqual(laps(requests), [])
 
+class SimGateAndSafeFields(unittest.TestCase):
+    """Replay/pause/menu gate, optional cdata fields and in-frame crossing time (CSP doubles)."""
+
+    def sim_setup(self, sim=None, strict_car=False):
+        def pre(lua):
+            install_events(lua)
+            lua.execute("""
+              RT_SIM = {isReplayActive=false, isPaused=false, isInMainMenu=false}
+              ac.getSim = function() return RT_SIM end
+            """)
+            if strict_car:  # CSP cdata: reading an undefined field raises
+                lua.execute("""
+                  local base = ac.getCar
+                  ac.getCar = function(i)
+                    local c = base(i)
+                    return setmetatable({}, {__index=function(_, k)
+                      if k == 'position' then return c.position end
+                      error('undefined field: ' .. tostring(k)) end})
+                  end
+                """)
+        lua, storage, position, requests, reply, to_lua = harness(pre_exec=pre)
+        script = lua.globals().script
+        script.connect('http://127.0.0.1:8080', 'station-1', 'secret')
+        script.configure(config(to_lua))
+        reply(0, {'station_id': 'station-1', 'session_id': 's1', 'pilot_id': 'p1', 'assignment_revision': 1})
+        return lua, position, requests
+
+    def test_missing_reset_counter_field_does_not_break_timing(self):
+        lua, position, requests = self.sim_setup(strict_car=True)
+        outlap(lua, position)
+        timed_lap(lua, position)
+        self.assertEqual(len(laps(requests)), 1)
+
+    def test_replay_pause_and_menu_discard_lap_and_require_outlap(self):
+        for flag in ('isReplayActive', 'isPaused', 'isInMainMenu'):
+            with self.subTest(flag=flag):
+                lua, position, requests = self.sim_setup()
+                outlap(lua, position)
+                move(lua, position, -4)
+                lua.execute('RT_SIM.%s = true' % flag)
+                for z in (-6, 1, -1, -4, -6, 1, -1):  # any motion while gated is ignored
+                    move(lua, position, z)
+                lua.execute('RT_SIM.%s = false' % flag)
+                for z in (-6, 1, -1):
+                    move(lua, position, z)
+                self.assertEqual(laps(requests), [])
+                outlap(lua, position)
+                timed_lap(lua, position)
+                self.assertEqual(len(laps(requests)), 1)
+
+    def test_crossing_time_is_interpolated_inside_the_frame(self):
+        lua, position, requests = self.sim_setup()
+        for z in (1, -1, -4, -6):
+            move(lua, position, z)
+        move(lua, position, 3, dt=.1)
+        move(lua, position, -1, dt=.1)   # line at 3/4 of this frame: outlap done at t-0.025
+        for z in (-4, -6):
+            move(lua, position, z, dt=1.0)
+        move(lua, position, 1, dt=1.0)
+        move(lua, position, -3, dt=1.0)  # line at 1/4 of this frame
+        sent = laps(requests)
+        self.assertEqual(len(sent), 1)
+        # frames after the outlap crossing: 0.025 + 1 + 1 + 1 + 0.25
+        self.assertEqual(sent[0]['raw_ms'], 3275)
+
 
 if __name__ == '__main__':
     unittest.main()

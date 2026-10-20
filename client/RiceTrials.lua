@@ -32,8 +32,11 @@ local function autostart()
     local okNew, created = pcall(diagnosticsModule.new, settings)
     if okNew and type(created) == 'table' then diag = created end
   end
+  local before = status
   if not script.connect(settings.server_url, settings.station_id, settings.station_token) then
-    status = 'STATION_CONFIG_INVALID / NOT SCORED'; return end
+    -- Keep a more specific reason (QUEUE_CORRUPT, QUEUE_STATION_MISMATCH, STORAGE_*) visible.
+    if status == before and not blocked then status = 'STATION_CONFIG_INVALID / NOT SCORED' end
+    return end
   -- Route data is a separate operator-calibrated module, not a generated default.
   local calibrated, course = pcall(require, 'route_config')
   if calibrated and type(course) == 'table' then script.configure(course) end
@@ -117,6 +120,10 @@ local function restore()
   return true
 end
 restore()
+-- Last authenticated assignment survives a network outage for at most this long, measured
+-- on the game clock (sum of update dt), not os.clock (CPU time in plain Lua).
+local ASSIGNMENT_STALE_S = 600
+local assignmentAt, gameClock = nil, 0
 local function headers()
   return {Authorization='Bearer '..token, ['Content-Type']='application/json'}
 end
@@ -158,17 +165,28 @@ function script.refreshAssignment()
   local ok = pcall(web.get, endpoint..'/api/station/assignment', headers(), function(err, response)
     fetching = false
     local body = decoded(err, response)
+    local httpStatus = type(response) == 'table' and response.status or nil
+    -- Transport failure (no reply, 5xx): keep the last AUTHENTICATED assignment for a bounded
+    -- time; laps carry its assignment_revision and the server keeps them PENDING_REVIEW.
+    -- Any answer from the server that is not a valid assignment (4xx, other station, junk 200)
+    -- clears it immediately.
+    local transient = body == nil and (err ~= nil or type(httpStatus) ~= 'number' or httpStatus == 0 or
+      httpStatus >= 500)
+    if transient and assignment and assignmentAt and gameClock - assignmentAt <= ASSIGNMENT_STALE_S then
+      online = false
+      status = 'ASSIGNMENT_STALE / OFFLINE / PENDING_REVIEW ONLY'; return
+    end
     if not body or body.station_id ~= station or type(body.session_id) ~= 'string' or
         type(body.pilot_id) ~= 'string' or not core.valid_id(body.session_id) or
         not core.valid_id(body.pilot_id) then
-      assignment = nil
+      assignment, assignmentAt = nil, nil
       status = 'ASSIGNMENT_UNAVAILABLE / NOT SCORED'; return
     end
-    assignment = body
+    assignment, assignmentAt = body, gameClock
     status = 'ASSIGNMENT_AUTHENTICATED / PENDING_REVIEW ONLY'
     sendPending()
   end)
-  if not ok then fetching = false; assignment = nil; return false end
+  if not ok then fetching = false; assignment, assignmentAt = nil, nil; return false end
   return true
 end
 local function beat()
@@ -235,6 +253,23 @@ if ac and type(ac.onSessionStart) == 'function' then
     resetRoute('SESSION_START'); lastResetCounter = nil; script.refreshAssignment()
   end)
 end
+-- FFI cdata raises on fields its CSP version does not define: read optional fields safely.
+local function field(obj, key)
+  local ok, value = pcall(function() return obj[key] end)
+  if ok then return value end
+  return nil
+end
+-- Never time while a replay plays, the game is paused or the menu is open (fail-closed:
+-- the current lap is discarded and a new outlap is required).
+local gatedReason = nil
+local function simGate()
+  local sim = ac and type(ac.getSim) == 'function' and ac.getSim() or nil
+  if not sim then return nil end
+  if field(sim, 'isReplayActive') == true then return 'REPLAY' end
+  if field(sim, 'isPaused') == true then return 'PAUSED' end
+  if field(sim, 'isInMainMenu') == true then return 'MAIN_MENU' end
+  return nil
+end
 local function diagnose(dt)
   if not diag then return end
   local car = ac and type(ac.getCar) == 'function' and ac.getCar(0) or nil
@@ -247,16 +282,23 @@ function script.update(dt)
   autostart()
   diagnose(dt)
   if type(dt) ~= 'number' or dt <= 0 or dt > 1 then resetRoute(); return end
-  retryClock, heartbeatClock = retryClock + dt, heartbeatClock + dt
+  retryClock, heartbeatClock, gameClock = retryClock + dt, heartbeatClock + dt, gameClock + dt
   if retryClock >= 5 then retryClock = 0; sendPending() end
   if heartbeatClock >= 30 then heartbeatClock = 0; beat(); script.refreshAssignment() end
   if not calibration or blocked then return end
+  local gate = simGate()
+  if gate then
+    if gatedReason ~= gate then resetRoute(gate); lastResetCounter = nil; gatedReason = gate end
+    return
+  end
+  gatedReason = nil
   local car = ac.getCar(0)
   if not car or not car.position then resetRoute(); return end
   local current = {x=car.position.x, z=car.position.z}
-  if type(car.resetCounter) == 'number' then
-    local changed = lastResetCounter ~= nil and car.resetCounter ~= lastResetCounter
-    lastResetCounter = car.resetCounter
+  local resets = field(car, 'resetCounter')
+  if type(resets) == 'number' then
+    local changed = lastResetCounter ~= nil and resets ~= lastResetCounter
+    lastResetCounter = resets
     if changed then resetRoute('RESET_COUNTER'); previous = current; return end
   end
   if type(current.x) ~= 'number' or type(current.z) ~= 'number' or
@@ -264,7 +306,11 @@ function script.update(dt)
     resetRoute(); previous = current; return
   end
   elapsed = elapsed + dt
-  local transition = route:observe(previous, current)
+  local transition, fraction = route:observe(previous, current)
+  -- Start-line crossing time interpolated inside this frame (position is linear between
+  -- the previous and current samples); falls back to the frame end.
+  if type(fraction) ~= 'number' or fraction < 0 or fraction > 1 then fraction = 1 end
+  local crossedAt = elapsed - (1 - fraction) * dt
   if transition == 'OUTLAP' then status = 'OUTLAP / NOT SCORED'
   elseif transition == 'OUTLAP_COMPLETE' then
     if not core.assignment_matches(assignment, assignment and assignment.session_id,
@@ -272,10 +318,10 @@ function script.update(dt)
       resetRoute(); previous = current; status = 'ASSIGNMENT_UNAVAILABLE / NOT SCORED'; return end
     frozen = {station_id=station, session_id=assignment.session_id, pilot_id=assignment.pilot_id,
       assignment_revision=assignment.assignment_revision}
-    started = elapsed; status = 'OUTLAP COMPLETE / ASSIGNMENT FROZEN'
+    started = crossedAt; status = 'OUTLAP COMPLETE / ASSIGNMENT FROZEN'
   elseif transition == 'CHECKPOINT' then status = 'ROUTE CHECKPOINT / NOT SCORED'
-  elseif transition == 'COMPLETE' and started and frozen and elapsed > started then
-    local raw = math.floor((elapsed-started)*1000+0.5)
+  elseif transition == 'COMPLETE' and started and frozen and crossedAt > started then
+    local raw = math.floor((crossedAt-started)*1000+0.5)
     if raw <= 0 or raw > 3600000 then resetRoute(); return end
     local id = station..'-'..nonce..'-'..tostring(nextId)
     local lapNumber = (lapNumbers[frozen.session_id] or 0) + 1
@@ -303,7 +349,7 @@ function script.update(dt)
     lastResult = {raw_seconds=raw/1000}
     status = 'PENDING_REVIEW / LOCALLY STORED / NOT SCORED'
     sendPending()
-    started = elapsed
+    started = crossedAt
     -- Each subsequent lap must be bound to current authenticated assignment.
     frozen = assignment and {station_id=station, session_id=assignment.session_id,
       pilot_id=assignment.pilot_id, assignment_revision=assignment.assignment_revision} or nil

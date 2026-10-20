@@ -259,6 +259,9 @@ class RouteExportTests(unittest.TestCase):
             current = runtime.table_from({'x': RADIUS * math.cos(angle), 'z': RADIUS * math.sin(angle)})
             if previous is not None:
                 event = machine.observe(machine, previous, current)
+                if isinstance(event, tuple):  # start-line events also return the in-frame fraction
+                    event, fraction = event
+                    self.assertTrue(0 <= fraction <= 1)
                 if event:
                     events.append(event)
             previous = current

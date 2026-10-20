@@ -15,17 +15,17 @@ class RouteQueue(unittest.TestCase):
 
     def test_outlap_then_ordered_checkpoint_then_finish(self):
         machine = self.core.route_machine(self.route)
-        self.assertEqual(machine.observe(machine, self.p(1), self.p(-1)), 'OUTLAP')
+        self.assertEqual(machine.observe(machine, self.p(1), self.p(-1)), ('OUTLAP', 0.5))
         self.assertIsNone(machine.observe(machine, self.p(1), self.p(-1)))
         self.assertEqual(machine.observe(machine, self.p(-4), self.p(-6)), 'CHECKPOINT')
-        self.assertEqual(machine.observe(machine, self.p(1), self.p(-1)), 'OUTLAP_COMPLETE')
+        self.assertEqual(machine.observe(machine, self.p(1), self.p(-1)), ('OUTLAP_COMPLETE', 0.5))
         self.assertEqual(machine.observe(machine, self.p(-4), self.p(-6)), 'CHECKPOINT')
-        self.assertEqual(machine.observe(machine, self.p(1), self.p(-1)), 'COMPLETE')
+        self.assertEqual(machine.observe(machine, self.p(3), self.p(-1)), ('COMPLETE', 0.75))
 
     def test_reverse_and_missing_checkpoint_cannot_finish(self):
         machine = self.core.route_machine(self.route)
         self.assertIsNone(machine.observe(machine, self.p(-1), self.p(1)))
-        self.assertEqual(machine.observe(machine, self.p(1), self.p(-1)), 'OUTLAP')
+        self.assertEqual(machine.observe(machine, self.p(1), self.p(-1))[0], 'OUTLAP')
         self.assertIsNone(machine.observe(machine, self.p(1), self.p(-1)))
 
     def test_queue_retains_entry_until_ack_and_rejects_wrong_ack(self):
