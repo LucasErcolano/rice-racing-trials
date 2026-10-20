@@ -13,6 +13,16 @@ The client has **not** been launched in Assetto Corsa or CSP. Do not represent t
 5. Have a reviewer record DOO, OC, autocross exit/re-entry, skidpad R,R,L,L, timed laps 2/4, DNF, and run validity. Compare independent stopwatch/video to HUD splits. Test reset, session restart, app closure/reopen, paused sim, invalid telemetry and multiple attempts. Validate scoring formulas separately against approved two-event protocol, which remains DRAFT with TBD sporting choices.
 6. Record Windows version, AC/CSP exact build, asset SHA-256, selected track/layout, app log, gate calibration provenance, operator, sample event evidence and server read-back. Mark each result pass/fail; block operational release on any missing item.
 
+## Mock assumptions to confirm in game (from `docs/csp-mock.md`)
+
+The `sim/` suite passes only under these assumptions. Record each as pass/fail on the pinned CSP build:
+
+1. `ac.getCar(0).resetCounter` exists and increments on "back to pits" and on reset.
+2. `ac.getSim().isReplayActive`, `isPaused` and `isInMainMenu` exist and turn true in replay, pause (Esc) and the main menu. Starting a replay during a lap must not produce a lap.
+3. Pausing in the middle of a lap discards it (the HUD asks for a new outlap) instead of adding the pause time.
+4. With the server stopped, `web.post` reports an error (or `status` 0/5xx). Laps driven during a short outage reach the server once it is back, as `PENDING_REVIEW` with no duplicates.
+5. A lap's `raw_ms` matches an independent video timer within 1 frame.
+
 ## Calibration and validation record (one signed copy per station and installed layout)
 
 | Item | Evidence to enter | Result |

@@ -40,7 +40,7 @@ El cliente de producción corre sin cambios sobre una simulación de la superfic
 
 ## Windows (GitHub Actions)
 
-`.github/workflows/windows-package.yml` corre en un runner Windows real: las dos suites de arriba, el parseo de todos los `.ps1`, la compilación con PyInstaller, la inspección de los ZIP, un smoke test del exe y `tests/windows/e2e-windows.ps1` contra el paquete compilado. Run `39334554771` (commit `ddeb289`): todo verde, 32/32 pasos del E2E. Detalle en `docs/windows-validation.md`.
+`.github/workflows/windows-package.yml` corre en un runner Windows real: las dos suites de arriba, el parseo de todos los `.ps1`, la compilación con PyInstaller, la inspección de los ZIP, un smoke test del exe y `tests/windows/e2e-windows.ps1` contra el paquete compilado. Run `39334554771` (commit `ddeb289`): todo verde, 32/32 pasos del E2E. Detalle en `docs/windows-validation.md`. Run `39400713102` (commit `4efcb7f`): todo verde, ahora con los 24 escenarios MOCK de CSP (sin la geometría FSAEJ, que no se distribuye) contra `server/app.py` y contra el exe compilado.
 
 ## No ejecutado
 
