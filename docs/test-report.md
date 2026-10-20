@@ -32,6 +32,10 @@ Las 5 pruebas de navegador usan Playwright con Chromium contra el servidor HTTP 
 - **E2E:** VM Lua real contra HTTP real y SQLite: asignación, heartbeat, vuelta pendiente, respuesta perdida tras commit, reinicio de VM, reenvío byte a byte, idempotencia y reasignación intermedia.
 - **Empaquetado y pista:** los ZIP no contienen credenciales, bases de datos ni archivos de terceros (KN5, ACD, auto). El parche candidato de `Dummy.kn5` se genera desde el ZIP original sin modificarlo, cambia sólo la matriz de `AC_START_0` y el resultado se vuelve a leer sin errores.
 
+## Windows (GitHub Actions)
+
+`.github/workflows/windows-package.yml` corre en un runner Windows real: las dos suites de arriba, el parseo de todos los `.ps1`, la compilación con PyInstaller, la inspección de los ZIP, un smoke test del exe y `tests/windows/e2e-windows.ps1` contra el paquete compilado. Run `39334554771` (commit `ddeb289`): todo verde, 32/32 pasos del E2E. Detalle en `docs/windows-validation.md`.
+
 ## No ejecutado
 
-Assetto Corsa y CSP en Windows (las APIs `io`, `web` y `ac.*` sólo se probaron con dobles), el parche de `Dummy.kn5` dentro del juego, detección física de conos y bordes, cronometraje real, comportamiento de `io.save` en Windows y ante cortes de energía, PowerShell, DPAPI y PyInstaller en ejecución real, tarea programada tras un reinicio, varias estaciones en red y un evento completo. Las pruebas de Linux verifican contratos y comportamiento emulado; no certifican nada deportivo. El sistema sigue bloqueado para trials oficiales.
+Assetto Corsa y CSP en Windows (las APIs `io`, `web` y `ac.*` sólo se probaron con dobles), el parche de `Dummy.kn5` dentro del juego, detección física de conos y bordes, cronometraje real, comportamiento de `io.save` en Windows y ante cortes de energía, tarea programada tras un reinicio real, varias estaciones en red y un evento completo. Las pruebas de Linux verifican contratos y comportamiento emulado; no certifican nada deportivo. El sistema sigue bloqueado para trials oficiales.

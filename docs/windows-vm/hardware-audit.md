@@ -29,20 +29,20 @@ Gigabyte X99-UD4P-CF, BIOS F23c (2018-06-15). Opciones relevantes del BIOS: «In
 |---|---|---|
 | `sda` Crucial BX500 SATA SSD | 223.6 GB | único disco físico |
 | `sda1` vfat | 1 GB | `/boot/efi` |
-| `sda3` ext4 | 222.6 GB | `/`: **205 GB usados, 3.8 GB libres (99 %)** |
+| `sda3` ext4 | 222.6 GB | `/`: **128 GB usados, 81 GB libres (62 %)** al 2026-10-19 |
 
-No hay otro disco ni montaje externo. Principales consumidores en `/home/lucas`:
+No hay otro disco ni montaje externo. La auditoría original encontró 3.8 GB libres (99 %). Ese mismo día, con autorización del usuario, se liberaron unos 81 GB:
 
-| Ruta | Tamaño | Naturaleza |
+| Ruta | Liberado | Condición |
 |---|---|---|
-| `radar-data/sessions` | ~62 GB | grabaciones crudas (SVO2, HDF5, CSV) copiadas desde la Jetson |
-| `autopilot-work/prep` | 39 GB | datos derivados de las grabaciones (frames, profundidad, etiquetas) |
-| `autopilot-work/cache` | 20 GB | caches de entrenamiento `v2_*`, `v3`, `v4` (v4 son hardlinks a v3) |
-| `autopilot-work/runs` | 2.8 GB | checkpoints entrenados |
-| Docker (`gw-eval`, `rallia/noetic`, build cache) | ~13 GB | imágenes |
-| `~/.cache/huggingface` | 4.9 GB | modelos descargables |
+| `radar-data/sessions` | ~62 GB | borrado después de comprobar por SHA-256 que los 78 archivos son idénticos a los de la Jetson (`/mnt/DataStorage`). Hashes en `~/radar-data/SESSIONS_SHA256_VERIFIED_ON_JETSON.txt`. El SSD de la Jetson tiene ahora la única copia de las grabaciones crudas. |
+| `autopilot-work/cache/v2_230515`, `v2_train`, `all.npz` | ~13 GB | caches viejas, elegidas por el usuario |
+| Imagen y contenedor Docker `gw-eval` | ~3 GB | evaluación cerrada |
+| `~/.cache/huggingface` (`hub`, `xet`, `sam3.1`) | ~5 GB | modelos descargables; SAM 3.1 borrado a pedido del usuario |
 
-Ninguno se borró. La VM con Windows 11 y Assetto Corsa necesita unos 100 GB libres (qcow2 dinámico de 120 GB).
+Quedan: `autopilot-work/prep` 39 GB (derivados, `cache/v3` depende de ellos), `autopilot-work/cache` 6.9 GB (`v3`, `v4`), `runs` 2.8 GB, Docker `rallia/noetic` 7.4 GB más 2.9 GB de build cache.
+
+Windows 11 con Assetto Corsa, CSP, la pista y el auto ocupa unos 50 GB; el disco virtual se dimensiona en `virtualization-decision.md`.
 
 ## GPU
 

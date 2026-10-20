@@ -1,6 +1,8 @@
-# Windows/CSP validation — NOT PERFORMED
+# Windows/CSP validation: CSP NOT PERFORMED
 
-This Linux build has **not** been launched in Assetto Corsa, CSP, or Windows. Static tests are not a Windows smoke test. Do not represent the app as commissioned or an attempt as scored.
+The client has **not** been launched in Assetto Corsa or CSP. Do not represent the app as commissioned or an attempt as scored.
+
+**Windows packaging, installer and server: validated on a GitHub-hosted Windows runner** (Windows Server, Windows PowerShell 5.1), run `39334554771`, commit `ddeb289`, 2026-10-19: 32/32 E2E steps passed (`tests/windows/e2e-windows.ps1`), no tokens or passwords in the evidence. Covered: installer preflight, refusals and SHA-256 checks, `station_config.lua` ACL, upgrade backup and rollback, uninstall and reinstall without touching other files; DPAPI secrets per account (another account cannot decrypt); the PyInstaller server through `start-server.ps1` (API, duplicate lap, leaderboard, CSV, backup, restore, restart, LAN bind, firewall rule); the scheduled task under a dedicated local account (start, crash recovery by the supervisor). Not covered: a real reboot, AC/CSP, the track, the car, a physical rig. The AC root in that run is a fixture with placeholder files. The `-Action Stop` step was added afterwards and is validated by the next run.
 
 ## Required operator procedure
 
@@ -25,9 +27,9 @@ This Linux build has **not** been launched in Assetto Corsa, CSP, or Windows. St
 | Stationary / reverse / off-segment / forward crossing traces | ______ | pending |
 | R,R,L,L / autocross route / cone and OC reviewer evidence | ______ | pending |
 | Server token/assignment/ack/retry/duplicate read-back | ______ | pending |
-| Restart, DB backup/restore, task-start/reboot test | ______ | pending |
+| Restart, DB backup/restore, task-start/reboot test | CI run 39334554771 covers restart, backup/restore, task start and crash recovery; reboot on the event server: ______ | partial |
 | Reviewer signature and final decision (default: BLOCKED) | ______ | BLOCKED |
 
 The timing-landmarks JSON is offline evidence, **not** a gate configuration. Do not generate active `script.configure` gates from it without a live survey and signed validation. Archive matching, file-hash matching and a CSP-loader DLL alone cannot verify the active game session or certify scoring.
 
-**Current result:** API source inspection and Linux static tests only. Spatial calibration, CSP execution, Windows integration, network contract, automatic penalties and real scoring all **UNVERIFIED**.
+**Current result:** Linux tests plus Windows packaging/server E2E on a CI runner. Spatial calibration, CSP execution, the client inside AC, the network contract from a real station, automatic penalties and real scoring all **UNVERIFIED**.
