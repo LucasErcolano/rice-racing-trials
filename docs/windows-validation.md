@@ -1,6 +1,6 @@
-# Windows/CSP validation: CSP NOT PERFORMED
+# Windows/CSP validation: in-game client load confirmed, full validation pending
 
-The client has **not** been launched in Assetto Corsa or CSP. Do not represent the app as commissioned or an attempt as scored.
+The client now loads inside Assetto Corsa through CSP 0.2.11 and reaches the server (authenticates, receives the assignment, heartbeats `online:true`) on the local VM `rice-win11`; proof in `docs/evidence/windows-vm/ingame-validation.md`. This does **not** commission the app or score any attempt: on-track timing, persistence, HUD, callbacks and scoring remain unverified.
 
 **Windows packaging, installer and server: validated on a GitHub-hosted Windows runner** (Windows Server, Windows PowerShell 5.1), run `39334554771`, commit `ddeb289`, 2026-10-19: 32/32 E2E steps passed (`tests/windows/e2e-windows.ps1`), no tokens or passwords in the evidence. Covered: installer preflight, refusals and SHA-256 checks, `station_config.lua` ACL, upgrade backup and rollback, uninstall and reinstall without touching other files; DPAPI secrets per account (another account cannot decrypt); the PyInstaller server through `start-server.ps1` (API, duplicate lap, leaderboard, CSV, backup, restore, restart, LAN bind, firewall rule); the scheduled task under a dedicated local account (start, crash recovery by the supervisor). Not covered: a real reboot, AC/CSP, the track, the car, a physical rig. The AC root in that run is a fixture with placeholder files. The `-Action Stop` step was added afterwards and is validated by the next run.
 
@@ -42,4 +42,4 @@ The `sim/` suite passes only under these assumptions. Record each as pass/fail o
 
 The timing-landmarks JSON is offline evidence, **not** a gate configuration. Do not generate active `script.configure` gates from it without a live survey and signed validation. Archive matching, file-hash matching and a CSP-loader DLL alone cannot verify the active game session or certify scoring.
 
-**Current result:** Linux tests plus Windows packaging/server E2E on a CI runner. Spatial calibration, CSP execution, the client inside AC, the network contract from a real station, automatic penalties and real scoring all **UNVERIFIED**.
+**Current result:** Linux tests plus Windows packaging/server E2E on a CI runner, plus the client loading in real AC/CSP and reaching the server (authenticated assignment + heartbeat) on the local VM `rice-win11`. On-track timing, `io.save`/`io.load` persistence, HUD rendering, reset/replay callbacks, automatic penalties and real scoring all **UNVERIFIED**.
