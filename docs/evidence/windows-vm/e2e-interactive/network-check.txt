@@ -1,0 +1,27 @@
+== IPv4 locales (usar la de la red del evento en ServerUrl de las estaciones)
+
+InterfaceAlias IPAddress      PrefixLength
+-------------- ---------      ------------
+Ethernet       192.168.122.52           24
+
+
+== Perfil de red (la regla de firewall de este kit sólo aplica a Private)
+
+InterfaceAlias Name    NetworkCategory
+-------------- ----    ---------------
+Ethernet       Network          Public
+
+
+== Proceso escuchando en TCP 18090
+Nadie escucha en 18090 (¿servidor detenido?)
+== Test-NetConnection 127.0.0.1 : 18090
+TcpTestSucceeded=False RemoteAddress=127.0.0.1
+== Reglas de firewall de este kit
+
+DisplayName                 Enabled Profile Direction Action
+-----------                 ------- ------- --------- ------
+RiceTrials Server TCP 18090    True Private   Inbound  Allow
+
+
+Desde cada estación: Test-NetConnection <IP-servidor> -Port 18090
+

@@ -27,14 +27,18 @@
 
 **Paquetes (`dist/`, generados con `packaging/build-linux.py`)**: `RiceRacing_Trials_Client.zip`, `RiceRacing_Trials_Server.zip`, `RiceRacing_Trials_Complete.zip` y `RiceRacing_Track_Calibration.zip`. Contienen sólo código propio y documentación: ningún KN5, ACD, auto, pista, credencial ni base de datos.
 
-Pruebas: ver `docs/test-report.md` (88 + 101, todas OK).
+**Entorno MOCK de AC/CSP (`sim/`, `docs/csp-mock.md`)**: corre el cliente sin modificar sobre LuaJIT 2.1 con la superficie de CSP simulada, disco y red reales con fallas inyectadas y el servidor real (en proceso o el exe compilado). 25 escenarios, incluidas vueltas sobre la línea AI real de FSAEJ. Encontró y corrigió cinco bugs del cliente: lectura de `resetCounter` que apagaba el cronometraje en un CSP sin ese campo, vueltas falsas en replay, tiempo inflado por la pausa, hasta 33 ms de error por tomar el cruce al final del frame, y pérdida de la asignación ante una caída breve de red. **Pasar esta suite no valida CSP**: las suposiciones a confirmar en el juego están listadas en `docs/csp-mock.md`.
+
+**VM Windows 11 propia (`docs/windows-vm/`)**: KVM en el servidor Ubuntu, con la RTX 3060 en passthrough. Allí corren las suites, el build con PyInstaller, el E2E de instalación (33/33 en la sesión interactiva) y los escenarios MOCK contra el exe compilado.
+
+Pruebas: ver `docs/test-report.md` (88 + 104 + 25, todas OK).
 
 ## Qué falta, en orden
 
 1. **Reinicio real del servidor del evento** con la tarea programada (lo único del lado Windows que el CI no puede probar).
-2. **En una estación con AC y CSP**: confirmar que la app carga, que `io.save` e `io.load` escriben en `apps/lua/RiceTrials/state/`, que `web.post` llega al servidor, que el HUD se ve y que `ac.onCarJumped` y `resetCounter` disparan como se espera. El kit de validación y `docs/windows-validation.md` guían cada paso.
+2. **En una estación con AC y CSP**: confirmar que la app carga, que `io.save` e `io.load` escriben en `apps/lua/RiceTrials/state/`, que `web.post` llega al servidor, que el HUD se ve y que `ac.onCarJumped` y `resetCounter` disparan como se espera. Confirmar también las suposiciones del mock: `ac.getSim().isReplayActive`, `isPaused` e `isInMainMenu` existen y cambian; qué `dt` recibe `script.update` en pausa; y qué entrega `web.post` cuando el servidor está caído. El kit de validación y `docs/windows-validation.md` guían cada paso.
 3. **Probar el parche de `Dummy.kn5` en juego**: salir de pits y verificar que no aparece la vuelta de 18 s y que la primera vuelta completa se cronometra bien. Si falla, revertir con `Apply-DummyPatch.ps1 -Revert`.
 4. **Calibrar la ruta** (gates y checkpoints medidos en la pista real) y firmar la checklist de `docs/windows-validation.md` en cada estación.
 5. Recién entonces armar el scoring (`scoring_armed=True`), con el protocolo deportivo aprobado. Los conos individuales no tienen detección automática porque las mallas del KN5 de FSAEJ están fusionadas; esas penalidades se cargan por revisión en `/admin`.
 
-El código está en el repositorio privado `LucasErcolano/rice-racing-trials`. No se publicó ningún release; los ZIP compilados quedan sólo como artifacts de los runs manuales. Plan para probar el cliente en juego sin el rig: `docs/windows-vm/virtualization-decision.md` (bloqueado hasta activar VT-x y VT-d en el BIOS).
+El código está en el repositorio privado `LucasErcolano/rice-racing-trials`. No se publicó ningún release; los ZIP compilados quedan sólo como artifacts de los runs manuales. Plan para probar el cliente en juego sin el rig: `docs/windows-vm/virtualization-decision.md` (VT-x y VT-d ya activos; la VM existe y sólo falta Steam con AC).

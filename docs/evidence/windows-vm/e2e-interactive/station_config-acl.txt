@@ -1,0 +1,9 @@
+
+sid                                           rights                     
+---                                           ------                     
+S-1-5-18                                      FullControl                
+S-1-5-32-544                                  FullControl                
+S-1-5-21-3465114751-741593368-1739291046-1000 ReadAndExecute, Synchronize
+
+
+

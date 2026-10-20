@@ -1,0 +1,119 @@
+﻿09:21:26 Entorno: {"os":"Microsoft Windows 11 Pro 10.0.26300 build 26300","powershell":"5.1.26100.9444","edition":"Desktop","user":"RICE-WIN11\\riceadmin","admin":true,"zip":"RiceTrials-0.2.0-vm-complete-win64.zip","zip_sha256":"3963a85780f387204524ba2df3a26b967902494b3d2180507c6a0792149481cf","started_utc":"2026-10-20T09:21:26.0134825Z"}
+09:21:26 === Extraer ZIP complete
+contenido OK
+09:21:29 PASS Extraer ZIP complete
+09:21:29 === Fixture de raíz AC (no es el juego)
+fixture creado
+09:21:29 PASS Fixture de raíz AC (no es el juego)
+09:21:29 === install.ps1 rechaza instalar sin hashes de origen (fail-closed)
+rechazado como se esperaba: Archive hashes required (-EnduranceZip/-EnduranceSha256/-CarArchive/-CarSha256), or pass -SkipArchiveHashes explicitly
+09:21:30 PASS install.ps1 rechaza instalar sin hashes de origen (fail-closed)
+09:21:30 === install.ps1 rechaza HTTP hacia IP pública
+rechazado como se esperaba: Non-loopback server requires HTTPS (or -AllowPlainHttpLan with a private IPv4 address)
+09:21:30 PASS install.ps1 rechaza HTTP hacia IP pública
+09:21:30 === install.ps1 verifica SHA-256 y rechaza un archivo alterado
+rechazado como se esperaba: Endurance archive SHA-256 mismatch: expected 0000000000000000000000000000000000000000000000000000000000000000, actual AE1001E1E925177021A6A5A0239EB77771DE301C4B8AA787D448318516AAB947
+09:21:30 PASS install.ps1 verifica SHA-256 y rechaza un archivo alterado
+09:21:30 === install.ps1 -Preflight no escribe nada
+checks: 7
+09:21:31 PASS install.ps1 -Preflight no escribe nada
+09:21:31 === install.ps1 instala con token por Read-Host y ACL restringida
+ACL: 3 reglas; recibo con 9 archivos
+09:21:36 PASS install.ps1 instala con token por Read-Host y ACL restringida
+09:21:36 === install.ps1 rechaza actualizar sin -BackupDirectory
+rechazado como se esperaba: Existing CSP app at C:\RiceE2E\fixture-ac\apps\lua\RiceTrials; specify -BackupDirectory for a reversible upgrade.
+09:21:36 PASS install.ps1 rechaza actualizar sin -BackupDirectory
+09:21:36 === install.ps1 actualiza con backup y luego rollback
+backups tras rollback: 2
+09:21:39 PASS install.ps1 actualiza con backup y luego rollback
+09:21:39 === uninstall.ps1 preflight, cancelación y desinstalación con backup
+rechazado como se esperaba: Cancelled
+desinstalada
+09:21:39 PASS uninstall.ps1 preflight, cancelación y desinstalación con backup
+09:21:39 === Reinstalación limpia
+OK
+09:21:41 PASS Reinstalación limpia
+09:21:41 === Los archivos del fixture AC quedaron intactos
+sin cambios fuera de apps\lua\RiceTrials
+09:21:42 PASS Los archivos del fixture AC quedaron intactos
+09:21:42 === configure-secrets.ps1 guarda tokens con DPAPI
+XML cifrado; descifra para el mismo usuario
+09:21:52 PASS configure-secrets.ps1 guarda tokens con DPAPI
+09:21:52 === configure-secrets.ps1 se niega a sobrescribir y a guardar dentro del release
+rechazado como se esperaba: Refusing to overwrite existing secrets
+rechazado como se esperaba: Secrets must live outside release directory
+09:21:52 PASS configure-secrets.ps1 se niega a sobrescribir y a guardar dentro del release
+09:21:52 === start-server.ps1 rechaza 0.0.0.0 y DB dentro del release
+rechazado como se esperaba: Bind only to 127.0.0.1, or pass -AllowLanBind with a private IPv4 of this machine (or use a TLS reverse proxy)
+rechazado como se esperaba: Database must live outside release directory
+09:21:53 PASS start-server.ps1 rechaza 0.0.0.0 y DB dentro del release
+09:21:53 === start-server.ps1 levanta el exe PyInstaller con secretos DPAPI
+GET /tv 200; tokens fuera de la línea de comandos
+09:22:08 PASS start-server.ps1 levanta el exe PyInstaller con secretos DPAPI
+09:22:08 === API: sesión, piloto, asignación, heartbeat, vuelta, duplicado, leaderboard, CSV
+flujo completo OK
+09:22:09 PASS API: sesión, piloto, asignación, heartbeat, vuelta, duplicado, leaderboard, CSV
+09:22:09 === server-admin.ps1 Backup (token por Read-Host) y Check
+{
+  "integrity": "ok",
+  "schema_version": 2
+}
+backup: trials-20261020T092209310952Z.sqlite
+09:22:10 PASS server-admin.ps1 Backup (token por Read-Host) y Check
+09:22:10 === Vuelta posterior al backup (para probar el restore)
+L2 registrada
+09:22:10 PASS Vuelta posterior al backup (para probar el restore)
+09:22:10 === server-admin.ps1 Restore rechaza con el servidor corriendo
+rechazado como se esperaba: Something still listens on 18090; stop the server before restoring
+09:22:22 PASS server-admin.ps1 Restore rechaza con el servidor corriendo
+09:22:22 === server-admin.ps1 Restore (servidor detenido) y verificación
+{
+  "restored_from": "C:\\RiceE2E\\data\\backups\\trials-20261020T092209310952Z.sqlite",
+  "sha256": "fe60b5cc120f381bf04f2edba198156fa32460b0051b98496ea9ef51d10dd90a",
+  "database": "C:\\RiceE2E\\data\\trials.sqlite",
+  "pre_restore_copy": "C:\\RiceE2E\\data\\backups\\trials-pre-restore-20261020T092225342210Z.sqlite",
+  "integrity": "ok",
+  "schema_version": 2
+}
+{
+  "integrity": "ok",
+  "schema_version": 2
+}
+L1 presente, L2 ausente: restore correcto
+09:22:32 PASS server-admin.ps1 Restore (servidor detenido) y verificación
+09:22:32 === Reinicio del servidor conserva el leaderboard
+persistencia OK
+09:22:37 PASS Reinicio del servidor conserva el leaderboard
+09:22:37 === Bind LAN a IPv4 privada propia (-AllowLanBind)
+servidor accesible en 192.168.122.52:18090
+09:22:45 PASS Bind LAN a IPv4 privada propia (-AllowLanBind)
+09:22:45 === server-admin.ps1 FirewallRule (crear, idempotente, quitar) y NetworkCheck
+regla Private creada y eliminada
+09:23:14 PASS server-admin.ps1 FirewallRule (crear, idempotente, quitar) y NetworkCheck
+09:23:14 === Crear cuenta local dedicada y permisos de carpeta
+cuenta ricesvc creada
+09:23:15 PASS Crear cuenta local dedicada y permisos de carpeta
+09:23:15 === configure-secrets.ps1 ejecutado por la cuenta de servicio (DPAPI de esa cuenta)
+secretos creados por ricesvc
+09:23:29 PASS configure-secrets.ps1 ejecutado por la cuenta de servicio (DPAPI de esa cuenta)
+09:23:29 === Otra cuenta (el admin del runner) NO puede descifrar los secretos del servicio
+rechazado por DPAPI: Key not valid for use in specified state.
+09:23:29 PASS Otra cuenta (el admin del runner) NO puede descifrar los secretos del servicio
+09:23:29 === server-admin.ps1 RegisterTask + Start-ScheduledTask (cuenta dedicada)
+09:23:32 derechos tras RegisterTask: SeBatchLogonRight = *S-1-5-21-3465114751-741593368-1739291046-1002,*S-1-5-21-3465114751-741593368-1739291046-1003,ricesvc,*S-1-5-32-544,*S-1-5-32-551,*S-1-5-32-559 (SID de ricesvc = S-1-5-21-3465114751-741593368-1739291046-1004)
+servidor iniciado por la tarea como ricesvc
+09:23:40 PASS server-admin.ps1 RegisterTask + Start-ScheduledTask (cuenta dedicada)
+09:23:40 === Servidor de la tarea: datos previos conservados y tokens del servicio válidos
+OK
+09:23:40 PASS Servidor de la tarea: datos previos conservados y tokens del servicio válidos
+09:23:40 === Caída del exe: start-server.ps1 lo relanza (supervisor, 10 s)
+09:23:47 tras matar el exe: estado=Running LastTaskResult=267009
+el servidor volvió solo (pid 588, como ricesvc)
+09:23:53 PASS Caída del exe: start-server.ps1 lo relanza (supervisor, 10 s)
+09:23:53 === server-admin.ps1 Stop detiene tarea, supervisor y exe (sin relanzar)
+puerto libre 25 s después de Stop; la tarea vuelve a arrancar con Start-ScheduledTask
+09:24:29 PASS server-admin.ps1 Stop detiene tarea, supervisor y exe (sin relanzar)
+09:24:29 === UnregisterTask y limpieza de la cuenta
+limpio
+09:24:33 PASS UnregisterTask y limpieza de la cuenta
+09:24:33 RESULTADO: 33 OK, 0 fallos

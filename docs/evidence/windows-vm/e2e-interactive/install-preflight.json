@@ -1,0 +1,47 @@
+﻿{
+    "tool":  "install.ps1",
+    "utc":  "2026-10-20T09:21:30.9132366Z",
+    "preflight":  true,
+    "checks":  [
+                   {
+                       "name":  "AssettoCorsa.exe",
+                       "status":  "warn",
+                       "detail":  "no encontrado en la raíz indicada"
+                   },
+                   {
+                       "name":  "CSP",
+                       "status":  "pass",
+                       "detail":  "dwrite.dll + extension\\config; versión fixture (build 0)"
+                   },
+                   {
+                       "name":  "hashes de archivos",
+                       "status":  "warn",
+                       "detail":  "omitidos por -SkipArchiveHashes: no hay evidencia del origen de los mods instalados"
+                   },
+                   {
+                       "name":  "Endurance installed ID",
+                       "status":  "pass",
+                       "detail":  "FSAEJ_Endurance (KN5 en raíz: 1; versión ui_track.json: fixture-0; Dummy.kn5 SHA-256: ausente)"
+                   },
+                   {
+                       "name":  "Skidpad",
+                       "status":  "warn",
+                       "detail":  "FSAEJ_Skidpad no instalado (use -RequireSkidpad para exigirlo)"
+                   },
+                   {
+                       "name":  "MFT02 installed ID",
+                       "status":  "pass",
+                       "detail":  "madformulateam_mft02 (datos: data\\car.ini; versión ui_car.json: no declarada)"
+                   },
+                   {
+                       "name":  "preflight",
+                       "status":  "pass",
+                       "detail":  "no files changed. Archive hashes do not prove installed bytes or commissioning."
+                   }
+               ],
+    "assetto_root":  "C:\\RiceE2E\\fixture-ac",
+    "csp":  {
+                "version":  "fixture",
+                "build":  "0"
+            }
+}

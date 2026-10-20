@@ -423,6 +423,56 @@ class InProcessServer:
         return f'http://127.0.0.1:{self.port}'
 
 
+class ExeServer:
+    """The frozen production server (RiceTrialsServer.exe built by PyInstaller) as a subprocess."""
+
+    def __init__(self, exe, db_path, admin_token, station_tokens):
+        import socket
+        import subprocess
+        import time
+        with socket.socket() as sock:
+            sock.bind(('127.0.0.1', 0))
+            self.port = sock.getsockname()[1]
+        env = dict(os.environ, RICE_ADMIN_TOKEN=admin_token, RICE_STATION_TOKENS=json.dumps(station_tokens))
+        self.log = open(str(db_path) + '.server.log', 'wb')
+        self.proc = subprocess.Popen([exe, '--db', str(db_path), '--host', '127.0.0.1', '--port', str(self.port)],
+                                     env=env, stdin=subprocess.DEVNULL, stdout=self.log,
+                                     stderr=subprocess.STDOUT)
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            if self.proc.poll() is not None:
+                raise RuntimeError('server exe exited with %s' % self.proc.returncode)
+            try:
+                urllib.request.urlopen(self.url + '/tv', timeout=2).read()
+                return
+            except Exception:
+                time.sleep(0.2)
+        self.stop()
+        raise RuntimeError('server exe did not answer GET /tv')
+
+    def stop(self):
+        if self.proc and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(10)
+            except Exception:
+                self.proc.kill()
+        self.proc = None
+        self.log.close()
+
+    @property
+    def url(self):
+        return f'http://127.0.0.1:{self.port}'
+
+
+def make_server(db_path, admin_token, station_tokens):
+    """RICE_SIM_SERVER_EXE selects the frozen exe; default is server/app.py in process."""
+    exe = os.environ.get('RICE_SIM_SERVER_EXE')
+    if exe:
+        return ExeServer(exe, db_path, admin_token, station_tokens)
+    return InProcessServer(db_path, admin_token, station_tokens)
+
+
 def api(base, method, path, token=None, payload=None):
     req = urllib.request.Request(base + path, method=method,
                                  data=json.dumps(payload).encode() if payload is not None else None)

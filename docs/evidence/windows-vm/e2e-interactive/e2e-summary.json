@@ -1,0 +1,184 @@
+﻿{
+    "environment":  {
+                        "os":  "Microsoft Windows 11 Pro 10.0.26300 build 26300",
+                        "powershell":  "5.1.26100.9444",
+                        "edition":  "Desktop",
+                        "user":  "RICE-WIN11\\riceadmin",
+                        "admin":  true,
+                        "zip":  "RiceTrials-0.2.0-vm-complete-win64.zip",
+                        "zip_sha256":  "3963a85780f387204524ba2df3a26b967902494b3d2180507c6a0792149481cf",
+                        "started_utc":  "2026-10-20T09:21:26.0134825Z"
+                    },
+    "finished_utc":  "2026-10-20T09:24:33.6840500Z",
+    "passed":  33,
+    "failed":  0,
+    "steps":  [
+                  {
+                      "step":  "Extraer ZIP complete",
+                      "status":  "pass",
+                      "seconds":  2.8
+                  },
+                  {
+                      "step":  "Fixture de raíz AC (no es el juego)",
+                      "status":  "pass",
+                      "seconds":  0.4
+                  },
+                  {
+                      "step":  "install.ps1 rechaza instalar sin hashes de origen (fail-closed)",
+                      "status":  "pass",
+                      "seconds":  0.6
+                  },
+                  {
+                      "step":  "install.ps1 rechaza HTTP hacia IP pública",
+                      "status":  "pass",
+                      "seconds":  0.2
+                  },
+                  {
+                      "step":  "install.ps1 verifica SHA-256 y rechaza un archivo alterado",
+                      "status":  "pass",
+                      "seconds":  0.2
+                  },
+                  {
+                      "step":  "install.ps1 -Preflight no escribe nada",
+                      "status":  "pass",
+                      "seconds":  0.6
+                  },
+                  {
+                      "step":  "install.ps1 instala con token por Read-Host y ACL restringida",
+                      "status":  "pass",
+                      "seconds":  4.9
+                  },
+                  {
+                      "step":  "install.ps1 rechaza actualizar sin -BackupDirectory",
+                      "status":  "pass",
+                      "seconds":  0.2
+                  },
+                  {
+                      "step":  "install.ps1 actualiza con backup y luego rollback",
+                      "status":  "pass",
+                      "seconds":  2.7
+                  },
+                  {
+                      "step":  "uninstall.ps1 preflight, cancelación y desinstalación con backup",
+                      "status":  "pass",
+                      "seconds":  0.4
+                  },
+                  {
+                      "step":  "Reinstalación limpia",
+                      "status":  "pass",
+                      "seconds":  1.1
+                  },
+                  {
+                      "step":  "Los archivos del fixture AC quedaron intactos",
+                      "status":  "pass",
+                      "seconds":  1.4
+                  },
+                  {
+                      "step":  "configure-secrets.ps1 guarda tokens con DPAPI",
+                      "status":  "pass",
+                      "seconds":  9.9
+                  },
+                  {
+                      "step":  "configure-secrets.ps1 se niega a sobrescribir y a guardar dentro del release",
+                      "status":  "pass",
+                      "seconds":  0.1
+                  },
+                  {
+                      "step":  "start-server.ps1 rechaza 0.0.0.0 y DB dentro del release",
+                      "status":  "pass",
+                      "seconds":  0.7
+                  },
+                  {
+                      "step":  "start-server.ps1 levanta el exe PyInstaller con secretos DPAPI",
+                      "status":  "pass",
+                      "seconds":  15
+                  },
+                  {
+                      "step":  "API: sesión, piloto, asignación, heartbeat, vuelta, duplicado, leaderboard, CSV",
+                      "status":  "pass",
+                      "seconds":  0.5
+                  },
+                  {
+                      "step":  "server-admin.ps1 Backup (token por Read-Host) y Check",
+                      "status":  "pass",
+                      "seconds":  1.6
+                  },
+                  {
+                      "step":  "Vuelta posterior al backup (para probar el restore)",
+                      "status":  "pass",
+                      "seconds":  0.1
+                  },
+                  {
+                      "step":  "server-admin.ps1 Restore rechaza con el servidor corriendo",
+                      "status":  "pass",
+                      "seconds":  11.4
+                  },
+                  {
+                      "step":  "server-admin.ps1 Restore (servidor detenido) y verificación",
+                      "status":  "pass",
+                      "seconds":  10.3
+                  },
+                  {
+                      "step":  "Reinicio del servidor conserva el leaderboard",
+                      "status":  "pass",
+                      "seconds":  5.4
+                  },
+                  {
+                      "step":  "Bind LAN a IPv4 privada propia (-AllowLanBind)",
+                      "status":  "pass",
+                      "seconds":  7.3
+                  },
+                  {
+                      "step":  "server-admin.ps1 FirewallRule (crear, idempotente, quitar) y NetworkCheck",
+                      "status":  "pass",
+                      "seconds":  28.8
+                  },
+                  {
+                      "step":  "Crear cuenta local dedicada y permisos de carpeta",
+                      "status":  "pass",
+                      "seconds":  1.4
+                  },
+                  {
+                      "step":  "configure-secrets.ps1 ejecutado por la cuenta de servicio (DPAPI de esa cuenta)",
+                      "status":  "pass",
+                      "seconds":  14.3
+                  },
+                  {
+                      "step":  "Otra cuenta (el admin del runner) NO puede descifrar los secretos del servicio",
+                      "status":  "pass",
+                      "seconds":  0.1
+                  },
+                  {
+                      "step":  "server-admin.ps1 RegisterTask + Start-ScheduledTask (cuenta dedicada)",
+                      "status":  "pass",
+                      "seconds":  10.1
+                  },
+                  {
+                      "step":  "Servidor de la tarea: datos previos conservados y tokens del servicio válidos",
+                      "status":  "pass",
+                      "seconds":  0.1
+                  },
+                  {
+                      "step":  "Caída del exe: start-server.ps1 lo relanza (supervisor, 10 s)",
+                      "status":  "pass",
+                      "seconds":  13.6
+                  },
+                  {
+                      "step":  "server-admin.ps1 Stop detiene tarea, supervisor y exe (sin relanzar)",
+                      "status":  "pass",
+                      "seconds":  36
+                  },
+                  {
+                      "step":  "UnregisterTask y limpieza de la cuenta",
+                      "status":  "pass",
+                      "seconds":  3.7
+                  },
+                  {
+                      "step":  "Evidencia sin tokens ni contraseñas",
+                      "status":  "pass",
+                      "seconds":  0,
+                      "error":  null
+                  }
+              ],
+    "note":  "Raíz AC = fixture de texto. Esto NO valida Assetto Corsa, CSP, la pista ni el auto. No se probó un reinicio real de Windows."
+}

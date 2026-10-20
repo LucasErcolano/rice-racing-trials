@@ -1,0 +1,156 @@
+{
+ "kind": "MOCK CSP/AC scenario suite (NOT CSP validation)",
+ "utc": "2026-10-20T09:20:53+00:00",
+ "git_commit": null,
+ "git_dirty": false,
+ "platform": "Windows-11-10.0.26300-SP0",
+ "python": "3.12.10",
+ "lupa": "2.8",
+ "luajit": "LuaJIT 2.1.1774896198",
+ "fsaej_geometry": true,
+ "server": "frozen exe RiceTrialsServer.exe sha256=524883351265bb3a7633a80e4a9f2c5fa7d451b339f13b35e307587d3283c5aa",
+ "client_sha256": {
+  "core.lua": "0781c62a6c164a6440f7409f18cad6d7fffe7fa70b2dacb3f4bd893e48149bad",
+  "detectors.lua": "9e166f8072f2322c4c915eff6a14a4fc85c0aedb3a60b3b2b2dbd124057d113e",
+  "diagnostics.lua": "785c4d94c1f6818c053db49caf7610f13bac4f04361c2b05dcb5e5ed3eeabec2",
+  "hud.lua": "6ff10ba159bef365404847fdfbbe885061261868228e92ff008503559ca1034d",
+  "journal.lua": "fe007eec4ea9f010d74f9a7050d8ab7fb88bf9afd57f01a17c6ac8ae3d873a36",
+  "RiceTrials.lua": "e2056bb90337dd57e9f7b612df72c59b68d6dd2f3db0958501dc96be190ea91e",
+  "scoring.lua": "d79db8c61e01458f2f3eee0602c9f047b4c41d29e5575675d048357883246436"
+ },
+ "server_sha256": "3ec15e2d52e35033bfe70a4c0708205f5bdd3366257805847e26caa04cbc5e04",
+ "tests_run": 25,
+ "counts": {
+  "pass": 25
+ },
+ "successful": true,
+ "elapsed_s": 121.5,
+ "outcomes": [
+  {
+   "test": "test_sim_scenarios.CleanDriving.test_frame_rate_jitter_and_low_fps",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.CleanDriving.test_laps_reach_server_with_accurate_time",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Compatibility.test_diagnostics_file_is_valid_jsonl",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Compatibility.test_missing_optional_apis_degrade_without_errors",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Compatibility.test_no_io_falls_back_to_storage_and_reports_degraded",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.FsaejGeometry.test_fsaej_ai_line_laps",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.GameStates.test_main_menu_never_produces_laps",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.GameStates.test_pause_with_dt_ticking_does_not_inflate_lap",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.GameStates.test_pause_with_zero_dt_invalidates_current_lap",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.GameStates.test_replay_never_produces_laps",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Network.test_http500_and_captive_portal_are_not_acks",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Network.test_lost_ack_is_retried_as_identical_duplicate",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Network.test_requests_in_flight_are_bounded",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Network.test_server_down_then_recovers_without_loss_or_duplicates",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Network.test_wrong_token_is_rejected_and_nothing_scored",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Persistence.test_corrupted_journal_blocks_with_manual_recovery",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Persistence.test_disk_full_degrades_and_says_so",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Persistence.test_game_restart_with_offline_queue_delivers_after_restart",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Persistence.test_torn_write_never_loses_acknowledged_state",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Resets.test_car_jumped_event_resets",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Resets.test_reset_counter_teleport_restarts_outlap",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Resets.test_reverse_driving_never_times",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Resets.test_session_restart_refreshes_assignment",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Resets.test_shortcut_skipping_checkpoint_not_timed",
+   "outcome": "pass",
+   "detail": null
+  },
+  {
+   "test": "test_sim_scenarios.Resets.test_teleport_without_reset_counter_field",
+   "outcome": "pass",
+   "detail": null
+  }
+ ],
+ "mocked": "MOCK Assetto Corsa / CSP host for the unmodified production Lua client.\n\nWhat is real here: client/*.lua (loaded from an app directory exactly as installed), LuaJIT 2.1\n(lupa.luajit21, the VM family CSP embeds), CSP's JSON implementation (vendored verbatim from\nacc-lua-sdk), the Python trials server (in-process or the PyInstaller exe over real HTTP), and\nthe files on disk (real directories, real paths, the host OS file semantics).\n\nWhat is MOCKED (never evidence of CSP behaviour): the ac/io/web/ui API surface, the timing of\nweb callbacks, FFI struct layouts, how/when CSP calls script.update during pause, replay and\nsession restarts, and the car physics (a kinematic driver following the AI line).\nSee docs/csp-mock.md."
+}

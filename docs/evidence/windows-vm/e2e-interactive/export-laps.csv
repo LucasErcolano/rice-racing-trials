@@ -1,0 +1,3 @@
+﻿session_id,station_id,lap_id,lap_number,pilot_id,event,raw_ms,corrected_ms,events,status,client_status,created_utc,calibration_reference,assignment_revision,rules_version,scoring_version,calibration_version,track_config,detector_ok,calibration_verified,client_timestamp,detector,sync
+S1,ST01,L1,,P1,autocross,61234,,"{""doo"":0,""oc"":0}",PENDING_REVIEW,valid,2026-10-20T09:22:08.810004+00:00,,,,,,,,,,,
+

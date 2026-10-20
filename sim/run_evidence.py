@@ -98,6 +98,9 @@ def main():
         'lupa': getattr(lupa, '__version__', None),
         'luajit': rt_jit,
         'fsaej_geometry': bool(os.environ.get('RICE_FSAEJ_GEOMETRY')),
+        'server': ('frozen exe ' + Path(os.environ['RICE_SIM_SERVER_EXE']).name + ' sha256=' +
+                   sha256(Path(os.environ['RICE_SIM_SERVER_EXE']))) if os.environ.get('RICE_SIM_SERVER_EXE')
+                  else 'server/app.py in process',
         'client_sha256': {p.name: sha256(p) for p in sorted((ROOT / 'client').glob('*.lua'))},
         'server_sha256': sha256(ROOT / 'server' / 'app.py'),
         'tests_run': result.testsRun,

@@ -1,0 +1,33 @@
+test_frame_rate_jitter_and_low_fps (test_sim_scenarios.CleanDriving.test_frame_rate_jitter_and_low_fps) ... ok
+test_laps_reach_server_with_accurate_time (test_sim_scenarios.CleanDriving.test_laps_reach_server_with_accurate_time) ... ok
+test_diagnostics_file_is_valid_jsonl (test_sim_scenarios.Compatibility.test_diagnostics_file_is_valid_jsonl) ... ok
+test_missing_optional_apis_degrade_without_errors (test_sim_scenarios.Compatibility.test_missing_optional_apis_degrade_without_errors) ... ok
+test_no_io_falls_back_to_storage_and_reports_degraded (test_sim_scenarios.Compatibility.test_no_io_falls_back_to_storage_and_reports_degraded) ... ok
+test_fsaej_ai_line_laps (test_sim_scenarios.FsaejGeometry.test_fsaej_ai_line_laps) ... ok
+test_main_menu_never_produces_laps (test_sim_scenarios.GameStates.test_main_menu_never_produces_laps) ... ok
+test_pause_with_dt_ticking_does_not_inflate_lap (test_sim_scenarios.GameStates.test_pause_with_dt_ticking_does_not_inflate_lap)
+If CSP keeps calling update with dt > 0 while paused, the lap must not count the pause. ... ok
+test_pause_with_zero_dt_invalidates_current_lap (test_sim_scenarios.GameStates.test_pause_with_zero_dt_invalidates_current_lap) ... ok
+test_replay_never_produces_laps (test_sim_scenarios.GameStates.test_replay_never_produces_laps) ... ok
+test_http500_and_captive_portal_are_not_acks (test_sim_scenarios.Network.test_http500_and_captive_portal_are_not_acks) ... ok
+test_lost_ack_is_retried_as_identical_duplicate (test_sim_scenarios.Network.test_lost_ack_is_retried_as_identical_duplicate) ... ok
+test_requests_in_flight_are_bounded (test_sim_scenarios.Network.test_requests_in_flight_are_bounded)
+The client keeps at most one request per channel (assignment, heartbeat, lap) in ... ok
+test_server_down_then_recovers_without_loss_or_duplicates (test_sim_scenarios.Network.test_server_down_then_recovers_without_loss_or_duplicates) ... ok
+test_wrong_token_is_rejected_and_nothing_scored (test_sim_scenarios.Network.test_wrong_token_is_rejected_and_nothing_scored) ... ok
+test_corrupted_journal_blocks_with_manual_recovery (test_sim_scenarios.Persistence.test_corrupted_journal_blocks_with_manual_recovery) ... ok
+test_disk_full_degrades_and_says_so (test_sim_scenarios.Persistence.test_disk_full_degrades_and_says_so) ... ok
+test_game_restart_with_offline_queue_delivers_after_restart (test_sim_scenarios.Persistence.test_game_restart_with_offline_queue_delivers_after_restart) ... ok
+test_torn_write_never_loses_acknowledged_state (test_sim_scenarios.Persistence.test_torn_write_never_loses_acknowledged_state) ... ok
+test_car_jumped_event_resets (test_sim_scenarios.Resets.test_car_jumped_event_resets) ... ok
+test_reset_counter_teleport_restarts_outlap (test_sim_scenarios.Resets.test_reset_counter_teleport_restarts_outlap) ... ok
+test_reverse_driving_never_times (test_sim_scenarios.Resets.test_reverse_driving_never_times) ... ok
+test_session_restart_refreshes_assignment (test_sim_scenarios.Resets.test_session_restart_refreshes_assignment) ... ok
+test_shortcut_skipping_checkpoint_not_timed (test_sim_scenarios.Resets.test_shortcut_skipping_checkpoint_not_timed) ... ok
+test_teleport_without_reset_counter_field (test_sim_scenarios.Resets.test_teleport_without_reset_counter_field)
+Older CSP struct without resetCounter: reading it raises on FFI cdata. ... ok
+
+----------------------------------------------------------------------
+Ran 25 tests in 121.483s
+
+OK

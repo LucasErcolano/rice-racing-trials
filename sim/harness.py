@@ -40,7 +40,7 @@ class Harness:
         self.geometry = geometry or M.synthetic_geometry()
         self.route_text, self.route = M.build_route(self.geometry, checkpoints=checkpoints)
         self.track = M.Track(self.geometry['ai_path'])
-        self.server = server or M.InProcessServer(str(self.dir / 'trials.sqlite'), ADMIN, TOKENS)
+        self.server = server or M.make_server(str(self.dir / 'trials.sqlite'), ADMIN, TOKENS)
         self.station, self.fps = station, fps
         self.rng = random.Random(seed)
         self.disk = M.Disk(self.dir / 'disk')
