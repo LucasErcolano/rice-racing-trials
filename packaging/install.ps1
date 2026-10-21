@@ -31,6 +31,7 @@ param(
     [string]$ServerUrl,
     [switch]$AllowPlainHttpLan,
     [string]$RouteConfig,
+    [string]$ConeConfig,
     [switch]$EnableDiagnostics,
     [string]$Rollback,
     [string]$ReportPath
@@ -281,6 +282,11 @@ if ($RouteConfig) {
     if ($Matches[1] -eq 'true') { Pass 'route_config' 'verified=true (aprobada por operador)' }
     else { Warn 'route_config' 'verified=false: el cliente no arma la ruta (sólo diagnóstico)' }
 }
+if ($ConeConfig) {
+    if (-not (Test-Path -LiteralPath $ConeConfig -PathType Leaf) -or (Split-Path -Leaf $ConeConfig) -notlike '*.lua') { throw "ConeConfig must be an existing .lua file: $ConeConfig" }
+    if ([IO.File]::ReadAllText($ConeConfig) -notmatch "version\s*=\s*'cone-boxes-v1'") { throw 'ConeConfig is not cone-boxes-v1 (generate it with track/tool.py export-cones)' }
+    Warn 'cone_config' 'candidatos geometricos de conos: ayuda al revisor, NUNCA son penalidades oficiales'
+}
 $existing = Test-Path -LiteralPath $target
 if ($existing -and -not $BackupDirectory) { throw "Existing CSP app at $target; specify -BackupDirectory for a reversible upgrade." }
 if ($BackupDirectory) {
@@ -299,13 +305,14 @@ $staging = P $apps @('.RiceTrials-install-' + [guid]::NewGuid().ToString('N'))
 $oldMoved = $false
 try {
     New-Item -ItemType Directory -Path $staging -ErrorAction Stop | Out-Null
-    foreach ($file in @(Get-ChildItem -LiteralPath $source -File | Where-Object { ($_.Extension -eq '.lua' -or $_.Name -eq 'manifest.ini') -and $_.Name -notin @('station_config.lua', 'route_config.lua') })) {
+    foreach ($file in @(Get-ChildItem -LiteralPath $source -File | Where-Object { ($_.Extension -eq '.lua' -or $_.Name -eq 'manifest.ini') -and $_.Name -notin @('station_config.lua', 'route_config.lua', 'cone_config.lua') })) {
         Copy-Item -LiteralPath $file.FullName -Destination $staging -ErrorAction Stop
     }
     foreach ($name in @('RiceTrials.lua','core.lua','manifest.ini')) {
         if (-not (Test-Path -LiteralPath (P $staging @($name)) -PathType Leaf)) { throw "Incomplete staged install: $name" }
     }
     if ($RouteConfig) { Copy-Item -LiteralPath $RouteConfig -Destination (P $staging @('route_config.lua')) -ErrorAction Stop }
+    if ($ConeConfig) { Copy-Item -LiteralPath $ConeConfig -Destination (P $staging @('cone_config.lua')) -ErrorAction Stop }
     Protect-StagingDirectory $staging
     $secret = Read-Host 'Station token (entered locally; never passed on command line)' -AsSecureString
     $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)

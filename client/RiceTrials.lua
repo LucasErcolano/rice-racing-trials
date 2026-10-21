@@ -8,6 +8,20 @@ local blocked, endpoint, station, token, assignment, frozen = false, nil, nil, n
 local sending, fetching, heartbeat, retryClock, heartbeatClock = false, false, false, 0, 0
 local bootAttempted = false
 local lapNumbers, lastResetCounter = {}, nil
+-- Advisory cone-contact candidates (optional cone_config.lua + detectors.cone_boxes). They go
+-- to the server as payload.detector for the reviewer and NEVER into events/penalties.
+local coneMachine, conePrev, coneIds = nil, nil, nil
+local function coneReset()
+  conePrev, coneIds = nil, {}
+  if coneMachine then coneMachine:reset() end
+end
+local function coneDetector()
+  if not coneMachine then return nil end
+  local list = {}
+  for i, id in ipairs(coneIds or {}) do if i <= 60 then list[#list+1] = id end end
+  return {cone_source='geometric_candidate_uncertified', cone_candidate_count=coneMachine.count,
+    cone_candidates=list, cone_shrink_m=coneMachine.shrink}
+end
 -- HUD and diagnostics are optional: a load failure degrades to the plain text window
 -- and never blocks timing or the queue.
 local okHud, hud = pcall(require, 'hud')
@@ -40,8 +54,20 @@ local function autostart()
   -- Route data is a separate operator-calibrated module, not a generated default.
   local calibrated, course = pcall(require, 'route_config')
   if calibrated and type(course) == 'table' then script.configure(course) end
+  local okCones, coneCfg = pcall(require, 'cone_config')
+  if okCones and type(coneCfg) == 'table' then script.configureCones(coneCfg) end
 end
 
+function script.configureCones(cfg)
+  local okDet, detectors = pcall(require, 'detectors')
+  coneMachine = nil
+  if okDet and type(detectors) == 'table' and type(detectors.cone_boxes) == 'function' then
+    coneMachine = detectors.cone_boxes(cfg)
+    if coneMachine then coneMachine.shrink = cfg.shrink_m end
+  end
+  coneReset()
+  return coneMachine ~= nil
+end
 local function validGate(g)
   if type(g) ~= 'table' or type(g.a) ~= 'table' or type(g.b) ~= 'table' or
       (g.direction ~= 1 and g.direction ~= -1) then return false end
@@ -240,6 +266,7 @@ end
 local function resetRoute(reason)
   if calibration then route = core.route_machine(calibration.route) end
   previous, started, frozen = nil, nil, nil
+  coneReset()
   status = 'OUTLAP_RESET / '..(reason or 'TELEPORT_OR_GAP')..' / NOT SCORED'
   if diag then pcall(diag.event, diag, 'route_reset', {reason=reason or 'TELEPORT_OR_GAP'}) end
 end
@@ -306,7 +333,19 @@ function script.update(dt)
     resetRoute(); previous = current; return
   end
   elapsed = elapsed + dt
+  local wasTimed = route.phase == 'timed' and started ~= nil
+  local look = field(car, 'look')
+  local pose = {x=current.x, z=current.z, lx=look and field(look, 'x'), lz=look and field(look, 'z')}
   local transition, fraction = route:observe(previous, current)
+  if coneMachine then
+    if wasTimed then
+      local okC, res = pcall(coneMachine.observe, coneMachine, conePrev, pose)
+      if okC and type(res) == 'table' and res.status == 'candidate' then
+        for _, id in ipairs(res.cones) do coneIds[#coneIds+1] = id end
+      end
+    end
+    conePrev = pose
+  end
   -- Start-line crossing time interpolated inside this frame (position is linear between
   -- the previous and current samples); falls back to the frame end.
   if type(fraction) ~= 'number' or fraction < 0 or fraction > 1 then fraction = 1 end
@@ -318,7 +357,7 @@ function script.update(dt)
       resetRoute(); previous = current; status = 'ASSIGNMENT_UNAVAILABLE / NOT SCORED'; return end
     frozen = {station_id=station, session_id=assignment.session_id, pilot_id=assignment.pilot_id,
       assignment_revision=assignment.assignment_revision}
-    started = crossedAt; status = 'OUTLAP COMPLETE / ASSIGNMENT FROZEN'
+    started = crossedAt; coneReset(); status = 'OUTLAP COMPLETE / ASSIGNMENT FROZEN'
   elseif transition == 'CHECKPOINT' then status = 'ROUTE CHECKPOINT / NOT SCORED'
   elseif transition == 'COMPLETE' and started and frozen and crossedAt > started then
     local raw = math.floor((crossedAt-started)*1000+0.5)
@@ -332,7 +371,7 @@ function script.update(dt)
       raw_ms=raw, status='PENDING_REVIEW', scoring_version=1, lap_number=lapNumber,
       rules_version=okScoring and type(scoring) == 'table' and scoring.RULES_VERSION or nil,
       calibration_version=type(calibration.calibration_version) == 'string' and calibration.calibration_version or nil,
-      client_timestamp=os.time()}
+      client_timestamp=os.time(), detector=coneDetector()}
     -- JSON libraries may encode an empty Lua table as []; the server requires
     -- events to be an object. Append the literal empty object to encoded scalars.
     local ok, serialized = pcall(JSON.stringify, payload)
@@ -343,6 +382,7 @@ function script.update(dt)
     if not ok or type(serialized) ~= 'string' or not queue:add(id, serialized) then
       fail('QUEUE_UNAVAILABLE / NOT SENT'); return end
     nextId = nextId + 1
+    coneReset()
     lapNumbers[frozen.session_id] = lapNumber
     if not persist() then return end
     crossings = crossings + 1
@@ -364,7 +404,9 @@ local function plainWindow()
   ui.text('Pending local reviews: '..tostring(#queue.entries))
   ui.text('Queue persistence: '..tostring(persistence))
   if lastResult then ui.text(string.format('Provisional route: %.3f s (NOT SCORED)', lastResult.raw_seconds)) end
-  ui.text('Cone contacts/off-course: unknown; manual review only')
+  if coneMachine then
+    ui.text(string.format('Cone CANDIDATES this lap: %d (advisory, reviewer decides)', coneMachine.count))
+  else ui.text('Cone contacts/off-course: unknown; manual review only') end
 end
 local function persistenceForHud()
   if persistence == 'migrated' or persistence == 'empty' then return 'ok' end

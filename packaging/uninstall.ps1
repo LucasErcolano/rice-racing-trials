@@ -14,7 +14,7 @@ $target = P $apps @('RiceTrials')
 if (-not (Test-Path -LiteralPath (P $target @('RiceTrials.lua')) -PathType Leaf)) { throw "Not a RiceTrials app folder: $target" }
 # Files the installer did not create (e.g. a user note) are reported so they are never lost silently.
 $receiptPath = P $target @('install-receipt.json')
-$known = @('install-receipt.json', 'station_config.lua', 'route_config.lua')
+$known = @('install-receipt.json', 'station_config.lua', 'route_config.lua', 'cone_config.lua')
 if (Test-Path -LiteralPath $receiptPath -PathType Leaf) {
     $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
     $known += @($receipt.files | ForEach-Object { $_.name })

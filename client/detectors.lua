@@ -101,4 +101,77 @@ function M.cones()
   end
   return machine
 end
+
+-- Geometric cone-contact CANDIDATES: oriented car box (AC collider footprint, shrunk by
+-- config.shrink_m to cut false positives) swept between frames against a list of cone
+-- centres. Advisory only: results are 'candidate', never an official penalty.
+function M.cone_boxes(config)
+  if type(config) ~= 'table' or config.version ~= 'cone-boxes-v1' or type(config.cones) ~= 'table'
+      or #config.cones < 1 then return nil end
+  local hw, hl, shrink, radius, depth = config.half_width_m, config.half_length_m,
+    config.shrink_m, config.cone_radius_m, config.min_depth_m
+  if not (finite(hw) and finite(hl) and finite(shrink) and finite(radius) and finite(depth))
+      or hw <= 0 or hl <= 0 or shrink < 0 or radius <= 0 or depth < 0
+      or shrink >= hw or shrink >= hl then return nil end
+  local cell, grid, ids = 4, {}, {}
+  for _, cone in ipairs(config.cones) do
+    if type(cone) ~= 'table' or type(cone.id) ~= 'string' or cone.id == '' or ids[cone.id]
+        or not point(cone) then return nil end
+    ids[cone.id] = true
+    local key = math.floor(cone.x / cell) .. ':' .. math.floor(cone.z / cell)
+    grid[key] = grid[key] or {}
+    grid[key][#grid[key] + 1] = cone
+  end
+  local bw, bl = hw - shrink, hl - shrink
+  local machine = {seen = {}, count = 0, official = false, confidence = 'geometric_candidate_uncertified'}
+  -- Penetration (m) of one cone into the car box at pose (x, z, look); <= 0 is no contact.
+  local function penetration(x, z, lx, lz, cone)
+    local dx, dz = cone.x - x, cone.z - z
+    local f, l = dx * lx + dz * lz, -dx * lz + dz * lx
+    local ox, oz = math.max(math.abs(f) - bl, 0), math.max(math.abs(l) - bw, 0)
+    return radius - math.sqrt(ox * ox + oz * oz)
+  end
+  local function nearby(x, z, out)
+    local cx, cz = math.floor(x / cell), math.floor(z / cell)
+    for i = cx - 1, cx + 1 do for j = cz - 1, cz + 1 do
+      local bucket = grid[i .. ':' .. j]
+      if bucket then for _, cone in ipairs(bucket) do out[#out + 1] = cone end end
+    end end
+  end
+  function machine:reset() self.seen, self.count = {}, 0 end
+  -- previous/current: {x, z, lx, lz}; the pose is interpolated every <= 0.1 m.
+  function machine:observe(previous, current)
+    local function pose(p) return type(p) == 'table' and point(p) and finite(p.lx) and finite(p.lz) end
+    if not pose(current) then return {status = 'unknown'} end
+    local a = pose(previous) and previous or current
+    local dist = math.sqrt((current.x - a.x) ^ 2 + (current.z - a.z) ^ 2)
+    if dist > 20 then a = current; dist = 0 end
+    local norm = math.sqrt(current.lx ^ 2 + current.lz ^ 2)
+    if norm < 0.5 then return {status = 'unknown'} end
+    local steps = math.max(1, math.ceil(dist / 0.1))
+    local candidates, new = {}, {}
+    for k = 1, steps do
+      local t = k / steps
+      local x, z = a.x + (current.x - a.x) * t, a.z + (current.z - a.z) * t
+      local lx, lz = a.lx + (current.lx - a.lx) * t, a.lz + (current.lz - a.lz) * t
+      local n = math.sqrt(lx * lx + lz * lz)
+      if n >= 0.5 then
+        lx, lz = lx / n, lz / n
+        candidates = {}
+        nearby(x, z, candidates)
+        for _, cone in ipairs(candidates) do
+          if not self.seen[cone.id] and penetration(x, z, lx, lz, cone) >= depth then
+            self.seen[cone.id] = true
+            self.count = self.count + 1
+            new[#new + 1] = cone.id
+          end
+        end
+      end
+    end
+    if #new > 0 then return {status = 'candidate', cones = new, count = self.count, confidence = self.confidence} end
+    return {status = 'clear', count = self.count}
+  end
+  return machine
+end
+
 return M

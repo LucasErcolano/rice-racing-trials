@@ -180,4 +180,45 @@ class Network(unittest.TestCase):
         position['z'] = -1; script.update(.1)
         self.assertFalse(any(r[1].endswith('/api/laps') for r in requests))
 
+
+class ConeCandidates(unittest.TestCase):
+    """Cone-box candidates ride in payload.detector for the reviewer; never in events/penalties."""
+    def cones(self, to_lua):
+        return to_lua({'version': 'cone-boxes-v1', 'half_width_m': 0.705, 'half_length_m': 1.48, 'shrink_m': 0.15,
+                       'cone_radius_m': 0.125, 'min_depth_m': 0.03,
+                       'cones': [{'id': 'HIT', 'x': 0.0, 'z': -2.0}, {'id': 'NEAR', 'x': 1.5, 'z': -2.0},
+                                 {'id': 'GRAZE', 'x': 0.78, 'z': -3.0}]})
+
+    def run_lap(self):
+        lua, storage, position, requests, reply, to_lua = harness()
+        lua.execute("local p = ac.getCar; ac.getCar = function(n) local c = p(n); c.look = {x=0, y=0, z=-1}; return c end")
+        script = lua.globals().script
+        script.connect('http://127.0.0.1:8080', 'station-1', 'secret')
+        script.configure(config(to_lua))
+        self.assertTrue(script.configureCones(self.cones(to_lua)))
+        reply(0, {'station_id': 'station-1', 'session_id': 's1', 'pilot_id': 'p1'})
+        drive_lap(lua, position)
+        post = next(r for r in requests if r[1].endswith('/api/laps'))
+        return json.loads(post[3])
+
+    def test_candidate_reaches_server_payload_but_not_penalties(self):
+        payload = self.run_lap()
+        self.assertEqual(payload['status'], 'PENDING_REVIEW')
+        self.assertEqual(payload['events'], {})
+        det = payload['detector']
+        self.assertEqual(det['cone_source'], 'geometric_candidate_uncertified')
+        self.assertEqual(det['cone_candidates'], ['HIT'])  # outlap contact is dropped; near miss and shrunk graze are clear
+        self.assertEqual(det['cone_candidate_count'], 1)
+
+    def test_invalid_cone_config_is_rejected_and_laps_have_no_detector(self):
+        lua, storage, position, requests, reply, to_lua = harness()
+        script = lua.globals().script
+        script.connect('http://127.0.0.1:8080', 'station-1', 'secret')
+        script.configure(config(to_lua))
+        self.assertFalse(script.configureCones(to_lua({'version': 'bad'})))
+        reply(0, {'station_id': 'station-1', 'session_id': 's1', 'pilot_id': 'p1'})
+        drive_lap(lua, position)
+        payload = json.loads(next(r for r in requests if r[1].endswith('/api/laps'))[3])
+        self.assertNotIn('detector', payload)
+
 if __name__ == '__main__': unittest.main()

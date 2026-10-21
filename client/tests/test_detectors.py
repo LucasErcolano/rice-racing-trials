@@ -71,6 +71,61 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(detector.count, 1)
         self.assertFalse(detector.official)
 
+    def cone_cfg(self, **over):
+        cfg = {'version': 'cone-boxes-v1', 'half_width_m': 0.705, 'half_length_m': 1.48, 'shrink_m': 0.15,
+               'cone_radius_m': 0.125, 'min_depth_m': 0.03,
+               'cones': [{'id': 'C1', 'x': 10.0, 'z': 0.0}, {'id': 'C2', 'x': 10.0, 'z': 2.0}]}
+        cfg.update(over)
+        return self.tab(cfg)
+
+    def pose(self, x, z, lx=1.0, lz=0.0):
+        return self.tab({'x': x, 'z': z, 'lx': lx, 'lz': lz})
+
+    def test_cone_box_direct_hit_is_candidate_once_and_never_official(self):
+        d = self.detectors.cone_boxes(self.cone_cfg())
+        r = d.observe(d, self.pose(5, 0), self.pose(9, 0))
+        self.assertEqual(r['status'], 'candidate')
+        self.assertEqual(r['cones'][1], 'C1')
+        again = d.observe(d, self.pose(9, 0), self.pose(12, 0))
+        self.assertEqual(again['status'], 'clear')
+        self.assertEqual(d.count, 1)
+        self.assertFalse(d.official)
+
+    def test_cone_box_sweep_catches_fast_frame_without_tunnelling(self):
+        d = self.detectors.cone_boxes(self.cone_cfg())
+        self.assertEqual(d.observe(d, self.pose(0, 0), self.pose(18, 0))['status'], 'candidate')
+
+    def test_cone_box_near_miss_and_shrunk_graze_are_not_candidates(self):
+        d = self.detectors.cone_boxes(self.cone_cfg())
+        # cone 1.0 m beside the centreline: clear of a 0.705 m half-width car
+        self.assertEqual(d.observe(d, self.pose(5, -1.0), self.pose(15, -1.0))['status'], 'clear')
+        # edge graze: cone centre 0.78 m off axis penetrates the full box by 0.05 but not the shrunk one
+        d2 = self.detectors.cone_boxes(self.cone_cfg(cones=self.tab([{'id': 'G', 'x': 10.0, 'z': 0.78}])))
+        self.assertEqual(d2.observe(d2, self.pose(5, 0), self.pose(15, 0))['status'], 'clear')
+        full = self.detectors.cone_boxes(self.cone_cfg(shrink_m=0.0, cones=self.tab([{'id': 'G', 'x': 10.0, 'z': 0.78}])))
+        self.assertEqual(full.observe(full, self.pose(5, 0), self.pose(15, 0))['status'], 'candidate')
+
+    def test_cone_box_respects_heading(self):
+        d = self.detectors.cone_boxes(self.cone_cfg(cones=self.tab([{'id': 'S', 'x': 0.0, 'z': 1.0}])))
+        # car at origin facing +x: cone 1.0 m to its side is clear; facing +z the same cone is ahead and hit
+        self.assertEqual(d.observe(d, self.pose(0, 0), self.pose(0, 0))['status'], 'clear')
+        d2 = self.detectors.cone_boxes(self.cone_cfg(cones=self.tab([{'id': 'S', 'x': 0.0, 'z': 1.0}])))
+        self.assertEqual(d2.observe(d2, self.pose(0, 0, 0, 1), self.pose(0, 0, 0, 1))['status'], 'candidate')
+
+    def test_cone_box_rejects_bad_config_and_bad_samples(self):
+        D = self.detectors
+        self.assertIsNone(D.cone_boxes(self.cone_cfg(version='x')))
+        self.assertIsNone(D.cone_boxes(self.cone_cfg(shrink_m=0.8)))
+        self.assertIsNone(D.cone_boxes(self.cone_cfg(cones=self.tab([]))))
+        self.assertIsNone(D.cone_boxes(self.cone_cfg(cones=self.tab([{'id': 'A', 'x': 0, 'z': 0}, {'id': 'A', 'x': 1, 'z': 1}]))))
+        d = D.cone_boxes(self.cone_cfg())
+        self.assertEqual(d.observe(d, None, self.tab({'x': 1}))['status'], 'unknown')
+        self.assertEqual(d.observe(d, None, self.pose(10, 0, 0, 0))['status'], 'unknown')
+
+    def test_cone_box_teleport_does_not_sweep_across_the_track(self):
+        d = self.detectors.cone_boxes(self.cone_cfg())
+        self.assertEqual(d.observe(d, self.pose(-500, 0), self.pose(500, 0))['status'], 'clear')
+
     def test_cone_missing_identifiers_never_counts(self):
         detector = self.detectors.cones()
         self.assertEqual(detector.observe(detector, self.tab({'source': 'operator_adjudication', 'decision': 'hit'}))['status'], 'unknown')
