@@ -113,6 +113,15 @@ def validate_optional(data):
             raise Problem(400, 'invalid ' + key)
 
 
+def reported_corrected(data, raw):
+    """Final time computed by the station (raw + its configured penalties). Shape check only:
+    an integer ms, never below the raw time. Anything else is ignored and the server falls back."""
+    value = data.get('corrected_ms')
+    if type(value) is int and raw <= value <= raw + 3600000:
+        return value
+    return None
+
+
 PAYLOAD_EXTRAS = ('lap_number', 'assignment_revision', 'rules_version', 'scoring_version', 'calibration_version',
                   'track_config', 'detector_ok', 'calibration_verified', 'client_timestamp', 'detector', 'sync')
 
@@ -319,7 +328,9 @@ class Store:
                 if not calibration:
                     raise Problem(409, 'admin calibration required')
                 events = json.loads(row['events'])
-                corrected = scoring.corrected_ms('endurance', row['raw_ms'], events)
+                corrected = reported_corrected(payload, row['raw_ms'])
+                if corrected is None:
+                    corrected = scoring.corrected_ms('endurance', row['raw_ms'], events)
                 if corrected is None:
                     raise Problem(409, 'stored events do not score under current rules')
             status = 'VALID' if decision == 'approve' else 'INVALID'
@@ -385,8 +396,10 @@ class Store:
         if event == 'endurance':
             if type(data.get('scoring_version')) is not int or data['scoring_version'] != 1:
                 raise Problem(400, 'unsupported scoring_version')
-            # Never trust a client corrected_ms: always recomputed here.
-            corrected = scoring.corrected_ms(event, raw, events)
+            # The station computes the final time (its penalty settings are editable in-game).
+            # A well-formed value is stored as sent; otherwise the fixed FSAE rules are used.
+            reported = reported_corrected(data, raw)
+            corrected = reported if reported is not None else scoring.corrected_ms(event, raw, events)
             status = scoring.resolve_status(status, data.get('detector_ok'))
             if status != 'VALID':
                 corrected = None
@@ -431,6 +444,10 @@ class Store:
             if not self.scoring_armed and status in VALID_STATUSES:
                 status, corrected = 'PENDING_REVIEW', None
                 calibration = None
+            # A pending lap keeps the station's final time for display; ranking still needs
+            # VALID status and armed scoring.
+            if event == 'endurance' and corrected is None and status == 'PENDING_REVIEW':
+                corrected = reported_corrected(data, raw)
             lap_number = data.get('lap_number')
             db.execute('INSERT INTO laps (station_id, lap_id, session_id, pilot_id, event, raw_ms, corrected_ms, events, status, payload, created_utc, calibration_reference, lap_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', (station, data['lap_id'], data['session_id'], data['pilot_id'], event, raw, corrected, json.dumps(events, sort_keys=True), status, payload, now_utc(), calibration['reference'] if calibration and status == 'VALID' else None, lap_number))
         return {'lap_id': data['lap_id'], 'corrected_ms': corrected, 'status': status, 'duplicate': False}

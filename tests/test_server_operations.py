@@ -116,6 +116,21 @@ class AuthAndProtocol(Harness):
             app.SYNC_ERROR_LIMIT = original
         self.assertEqual(len(self.store.sync_errors()), 5)
 
+    def test_station_final_time_is_stored_as_sent_when_well_formed(self):
+        self.seed()
+        lap = self.lap(event='endurance', status='PENDING_REVIEW', scoring_version=1, events={'cone': 1}, corrected_ms=60000 + 5500)
+        result = self.submit(lap)
+        self.assertEqual((result['status'], result['corrected_ms']), ('PENDING_REVIEW', 65500))
+        stored = self.call('GET', '/api/admin/laps?session_id=S1', token=ADMIN)[1]['laps'][0]
+        self.assertEqual(stored['corrected_ms'], 65500)
+        self.assertEqual(self.call('GET', '/api/leaderboard')[1]['ranking'], {})  # still never ranked while unarmed
+
+    def test_malformed_station_final_time_is_not_stored(self):
+        self.seed()
+        for i, bad in enumerate((1, -5, 1.5, '65000', 60000 + 10 ** 8, None)):
+            lap = self.lap(lap_id='B%d' % i, event='endurance', status='PENDING_REVIEW', scoring_version=1, events={}, corrected_ms=bad)
+            self.assertIsNone(self.submit(lap)['corrected_ms'], bad)
+
     def test_optional_client_metadata_is_stored_and_exported(self):
         self.seed()
         extra = dict(lap_number=4, rules_version=1, calibration_version='cal-7', client_timestamp='2026-10-19T10:00:00Z',

@@ -78,6 +78,15 @@ class HudModel(unittest.TestCase):
         # Fixture "endurance combined" in rules/scoring-v1.json: 154500 ms.
         self.assertEqual(self.find(lines, 'Proyectado'), ('Proyectado PROVISIONAL: 2:34.500', 'info'))
 
+    def test_station_configured_amounts_and_projection_are_shown(self):
+        state = self.base(lap={'elapsed_ms': 68500, 'penalties': {'cone': 2, 'off_course': 1, 'slalom': ['S1']},
+                               'penalty_amounts': {'cone': 3500, 'off_course': 0, 'slalom': 20000},
+                               'projected_ms': 68500 + 2 * 3500 + 20000})
+        _, lines, _ = self.model(state)
+        self.assertEqual(self.find(lines, 'Conos:')[0], 'Conos: 2 +0:07.000')
+        self.assertEqual(self.find(lines, 'Off-course:')[0], 'Off-course: 1 +0:00.000')
+        self.assertEqual(self.find(lines, 'Proyectado'), ('Proyectado PROVISIONAL: 1:35.500', 'info'))
+
     def test_clean_lap_with_explicit_zero_evidence(self):
         state = self.base(lap={'elapsed_ms': 70123, 'penalties': {'cone': 0, 'off_course': 0, 'slalom': []}})
         _, lines, _ = self.model(state)

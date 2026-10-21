@@ -16,8 +16,10 @@ local coneMachine, conePrev, coneIds = nil, nil, nil
 -- server never makes them official while scoring is disarmed and the admin can edit every count.
 local limitsMachine, slalomMachine, autoPenalties, maxAutoCones, maxWheelsOut = nil, nil, false, 25, 0
 local coneExcluded, autoCones = {}, 0
+local penaltyStore, offTimes, gateTimes = nil, {}, {}
 local function coneReset()
   conePrev, coneIds, maxWheelsOut, autoCones = nil, {}, 0, 0
+  offTimes, gateTimes = {}, {}
   if coneMachine then coneMachine:reset() end
   if limitsMachine then limitsMachine:reset() end
   if slalomMachine then slalomMachine:reset() end
@@ -26,6 +28,30 @@ local function slalomResult()
   if not slalomMachine then return nil end
   local ok, res = pcall(slalomMachine.finalize, slalomMachine)
   return ok and type(res) == 'table' and res or nil
+end
+-- Penalty settings (in-game panel). Detection never depends on them; they only decide how
+-- many seconds each detected incident adds when the lap closes.
+local okPen, penaltyMod = pcall(require, 'penalties')
+if not okPen or type(penaltyMod) ~= 'table' then penaltyMod = nil end
+local function penaltyCounts()
+  local counts, times = {}, {off = offTimes, slalom = {}}
+  if coneMachine then counts.cone = math.min(autoCones, maxAutoCones) end
+  if limitsMachine then counts.off_course = math.min(limitsMachine.count, 100) end
+  local sl = slalomResult()
+  if sl then
+    counts.slalom = #sl.violations
+    for _, id in ipairs(sl.violations) do
+      if gateTimes[id] then times.slalom[#times.slalom+1] = gateTimes[id] end
+    end
+  end
+  return counts, times, sl
+end
+local function penaltyOutcome()
+  if not (autoPenalties and penaltyStore and penaltyMod) then return nil end
+  local counts, times = penaltyCounts()
+  local ok, r = pcall(penaltyMod.apply, penaltyStore.cfg, counts, times)
+  if ok and type(r) == 'table' then return r end
+  return nil
 end
 local function coneDetector()
   if not (coneMachine or limitsMachine or slalomMachine) then return nil end
@@ -194,6 +220,10 @@ local function restore()
   return true
 end
 restore()
+if penaltyMod then
+  penaltyStore = penaltyMod.new({dir=journalDir(), io=io, storage=ac and ac.storage,
+    json={encode=function(v) return JSON.stringify(v) end, decode=function(t) return JSON.parse(t) end}})
+end
 -- Last authenticated assignment survives a network outage for at most this long, measured
 -- on the game clock (sum of update dt), not os.clock (CPU time in plain Lua).
 local ASSIGNMENT_STALE_S = 600
@@ -354,6 +384,7 @@ local function diagnose(dt)
     connection={online=online, pending=#queue.entries, persistence=persistence}})
 end
 function script.update(dt)
+  if penaltyStore then pcall(penaltyStore.flush, penaltyStore, dt) end
   autostart()
   diagnose(dt)
   if type(dt) ~= 'number' or dt <= 0 or dt > 1 then resetRoute(); return end
@@ -403,8 +434,16 @@ function script.update(dt)
           end
         end
       end
-      if limitsMachine then pcall(limitsMachine.observe, limitsMachine, pose, dt) end
-      if slalomMachine and conePrev then pcall(slalomMachine.observe, slalomMachine, conePrev, pose) end
+      if limitsMachine then
+        local okL, res = pcall(limitsMachine.observe, limitsMachine, pose, dt)
+        if okL and type(res) == 'table' and res.new then offTimes[#offTimes+1] = elapsed end
+      end
+      if slalomMachine and conePrev then
+        local okS, res = pcall(slalomMachine.observe, slalomMachine, conePrev, pose)
+        if okS and type(res) == 'table' and type(res.gates) == 'table' then
+          for _, id in ipairs(res.gates) do gateTimes[id] = elapsed end
+        end
+      end
       local wo = field(car, 'wheelsOutside')
       if type(wo) == 'number' and wo > maxWheelsOut then maxWheelsOut = wo end
     end
@@ -436,6 +475,14 @@ function script.update(dt)
       rules_version=okScoring and type(scoring) == 'table' and scoring.RULES_VERSION or nil,
       calibration_version=type(calibration.calibration_version) == 'string' and calibration.calibration_version or nil,
       client_timestamp=os.time(), detector=coneDetector()}
+    -- The station scores the lap: final time = raw + configured penalties. The settings used
+    -- travel with the lap, so later edits never rewrite it.
+    local outcome = penaltyOutcome()
+    if outcome then
+      payload.corrected_ms = raw + outcome.penalty_ms
+      payload.penalty = {penalty_ms=outcome.penalty_ms, applied=outcome.applied,
+        deduped=outcome.deduped, config=penaltyStore.cfg}
+    end
     -- JSON libraries may encode an empty Lua table as []; the server requires
     -- events to be an object. Append the literal empty object to encoded scalars.
     local ok, serialized = pcall(JSON.stringify, payload)
@@ -477,6 +524,17 @@ local function persistenceForHud()
   if persistence == 'ok' or persistence == 'degraded' or persistence == 'corrupt' then return persistence end
   return 'unavailable'
 end
+local function liveLap()
+  local lap = {elapsed_ms=math.floor((elapsed-started)*1000+0.5), penalties={}}
+  local outcome = penaltyOutcome()
+  if outcome then
+    local counts, _, sl = penaltyCounts()
+    lap.penalties = {cone=counts.cone, off_course=counts.off_course, slalom=sl and sl.violations or nil}
+    lap.penalty_amounts = penaltyMod.amounts(penaltyStore.cfg)
+    lap.projected_ms = lap.elapsed_ms + outcome.penalty_ms
+  end
+  return lap
+end
 local function hudState()
   local timed = route and route.phase == 'timed' and started ~= nil
   return {
@@ -485,7 +543,7 @@ local function hudState()
     event=calibration and calibration.event or nil,
     phase=calibration and route and route.phase or nil,
     -- Penalties carry no evidence until a detector is commissioned: shown as "sin evidencia".
-    lap=timed and {elapsed_ms=math.floor((elapsed-started)*1000+0.5), penalties={}} or nil,
+    lap=timed and liveLap() or nil,
     last_official=nil, best=nil,
     sync={online=online, pending=#queue.entries, persistence=persistenceForHud(),
       last_ack=lastAck and {lap_id=lastAck.lap_id, age_s=math.floor(os.clock()-lastAck.at)} or nil},
@@ -501,4 +559,12 @@ function script.windowMain(dt)
     end
   end
   plainWindow()
+end
+function script.penaltyStore() return penaltyStore end
+function script.windowPenalties(dt)
+  if penaltyMod and penaltyStore then
+    local ok = pcall(penaltyMod.draw, penaltyStore, ui, ac, dt)
+    if ok then return end
+  end
+  ui.text('Panel de penalizaciones no disponible')
 end

@@ -129,6 +129,7 @@ function M.model(state, config)
     local fields = event and PENALTY_FIELDS[event]
     local scoring = scoringModule()
     local amounts = scoring and type(scoring.PENALTIES) == 'table' and scoring.PENALTIES[event] or {}
+    if type(lap.penalty_amounts) == 'table' then amounts = lap.penalty_amounts end
     local penalties = type(lap.penalties) == 'table' and lap.penalties or {}
     if not fields then
       add('Penalidades: no disponibles para '..(clean(event, 16) or 'evento desconocido'), 'warn')
@@ -145,6 +146,8 @@ function M.model(state, config)
       end
       if #missing > 0 then
         add('Proyectado: sin evidencia ('..table.concat(missing, ', ')..')', 'warn')
+      elseif int(lap.projected_ms) and lap.projected_ms >= 0 then
+        add('Proyectado PROVISIONAL: '..M.format_ms(lap.projected_ms), 'info')
       elseif invalid or not scoring or type(scoring.corrected_ms) ~= 'function' then
         add('Proyectado: no calculable', 'error')
       else
