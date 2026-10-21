@@ -21,7 +21,7 @@ from pathlib import Path
 if not __package__:  # ``python -I track/tool.py``: -I drops the script dir, add the repo root explicitly
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from track import dummy_patch, geometry, render, route_export, telemetry  # noqa: E402
+from track import dummy_patch, geometry, penalties as _penalties, render, route_export, telemetry  # noqa: E402
 
 
 def _write(path, data, binary=False):
@@ -107,9 +107,32 @@ def cmd_export_cones(args):
              '  cones = {']
     for index, cone in enumerate(clusters, 1):
         lines.append(f"    {{id = 'C{index:04d}', x = {cone['x']:.3f}, z = {cone['z']:.3f}}},")
-    lines += ['  },', '}', '']
+    lines += ['  },']
+    ids = [{'id': f'C{i:04d}', 'x': c['x'], 'z': c['z']} for i, c in enumerate(clusters, 1)]
+    ref = _penalties.reference_line_cones(document, ids, args.half_width, args.half_length, args.shrink,
+                                          args.cone_radius, args.min_depth)
+    lines.append('  -- cones the reference racing line itself drives through: candidates only, never auto penalties')
+    lines.append('  ref_line_cones = {' + ', '.join(f"'{i}'" for i in ref) + '},')
+    outer, inner = _penalties.asphalt_ring(document)
+    runs = [r for r in _penalties.slalom_runs(document, outer, inner) if r['confidence'] >= args.min_slalom_conf]
+    lines += [f'  auto_penalties = {"true" if args.auto else "false"},',
+              f'  off_margin_m = {args.off_margin}, off_hold_s = {args.off_hold}, off_rearm_s = 0.5,',
+              '  wheel_half_track_m = 0.6, wheel_half_base_m = 0.85, max_auto_cones = 25,',
+              '  -- asphalt ring from IS_VALID_TRACK surfaces: off-course = all four wheels outside it',
+              '  limits = {']
+    for name, poly in (('outer', outer), ('inner', inner)):
+        lines.append(f'    {name} = {{' + ','.join(f'{{{x:.2f},{z:.2f}}}' for x, z in poly) + '},')
+    lines += ['  },', '  slalom = {', '    half_m = 5.5,', '    runs = {']
+    for run in runs:
+        lines.append(f"      {{id = '{run['id']}', gates = {{")
+        for g in run['gates']:
+            lines.append(f"        {{id = '{g['id']}', x = {g['x']:.3f}, z = {g['z']:.3f}, tx = {g['tx']:.5f}, "
+                         f"tz = {g['tz']:.5f}, expected = {g['expected']}}},")
+        lines.append('      }},')
+    lines += ['    },', '  },', '}', '']
     _write(args.output, '\n'.join(lines))
-    print(f'{len(clusters)} cones, shrink {args.shrink} m ->', args.output)
+    print(f'{len(clusters)} cones ({len(ref)} on the reference line, excluded from auto), {len(runs)} slalom runs, ring {len(outer)}+{len(inner)} pts, '
+          f'shrink {args.shrink} m, auto={args.auto} ->', args.output)
 
 
 def cmd_dummy_patch(args):
@@ -176,6 +199,10 @@ def main(argv=None):
     p.add_argument('--shrink', type=float, default=0.15, help='shrink the box on every side to cut false positives (m)')
     p.add_argument('--cone-radius', type=float, default=0.125)
     p.add_argument('--min-depth', type=float, default=0.03, help='minimum penetration to count (m)')
+    p.add_argument('--off-margin', type=float, default=0.3, help='off-course tolerance beyond the asphalt edge (m)')
+    p.add_argument('--off-hold', type=float, default=0.15, help='seconds all four wheels must stay out')
+    p.add_argument('--min-slalom-conf', type=float, default=0.8, help='min |AI lateral| (m) at every pylon of a run')
+    p.add_argument('--no-auto', dest='auto', action='store_false', help='advisory only: nothing goes into events')
     p.set_defaults(func=cmd_export_cones)
 
     p = sub.add_parser('dummy-patch')

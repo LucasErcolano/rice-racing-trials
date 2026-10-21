@@ -132,6 +132,93 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(detector.count, 0)
 
 
+
+    # ---- track limits / slalom runs -------------------------------------------------------
+    def ring(self, **extra):
+        # 100 m square ring, 10 m wide: outer [-50,50]^2, inner [-40,40]^2 (x, z)
+        sq = lambda h: [[-h, -h], [h, -h], [h, h], [-h, h]]
+        cfg = {'limits': {'outer': sq(50), 'inner': sq(40)}, 'off_margin_m': 0.3, 'off_hold_s': 0.15,
+               'off_rearm_s': 0.5, 'wheel_half_track_m': 0.6, 'wheel_half_base_m': 0.85}
+        cfg.update(extra)
+        return self.detectors.track_limits(self.tab(cfg))
+
+    def off(self, det, x, z, dt=0.1):
+        return det.observe(det, self.tab({'x': x, 'z': z, 'lx': 0, 'lz': 1}), dt)
+
+    def test_track_limits_on_asphalt_and_wheel_on_edge_is_not_off_course(self):
+        det = self.ring()
+        for x in (-45, -49.5, -40.2):  # centre on asphalt, and car box straddling the edge
+            self.assertEqual(self.off(det, x, 0)['status'], 'on_course')
+        # centre 1.0 m outside the outer edge: the inner wheels are still within margin of... no, all four out
+        self.assertEqual(det.count, 0)
+
+    def test_track_limits_needs_all_four_wheels_out_beyond_margin_and_dedupes(self):
+        det = self.ring()
+        self.assertEqual(self.off(det, 50.5, 0)['status'], 'on_course')   # wheels still near the edge (<= margin)
+        self.assertEqual(det.count, 0)
+        self.assertEqual(self.off(det, 52.5, 0)['status'], 'on_course')   # first frame out < hold (0.15 s)
+        self.assertEqual(self.off(det, 52.5, 0)['status'], 'off_course')  # fully out for >= hold
+        self.assertEqual(self.off(det, 53, 0)['status'], 'off_course')
+        self.assertEqual(det.count, 1)                                    # one event per excursion
+        for _ in range(6): self.off(det, 45, 0)                           # back on for > rearm
+        self.off(det, 52.5, 0)
+        self.assertEqual(self.off(det, 52.5, 0)['status'], 'off_course')
+        self.assertEqual(det.count, 2)
+
+    def test_track_limits_short_blip_and_bad_data_are_not_penalised(self):
+        det = self.ring(off_hold_s=0.25)
+        self.assertEqual(self.off(det, 52.5, 0, 0.1)['status'], 'on_course')
+        self.assertEqual(self.off(det, 45, 0, 0.1)['status'], 'on_course')
+        self.assertEqual(det.count, 0)
+        self.assertEqual(det.observe(det, self.tab({'x': 52.5, 'z': 0}), 0.1)['status'], 'unknown')
+        self.assertEqual(det.observe(det, self.tab({'x': 52.5, 'z': 0, 'lx': 0, 'lz': 1}), 5)['status'], 'unknown')
+        self.assertEqual(det.count, 0)
+        self.assertIsNone(self.detectors.track_limits(self.tab({'limits': {'outer': [[0, 0]], 'inner': []}})))
+
+    def slalom_cfg(self):
+        # 3 pylons along +x at x = 0,10,20; car travels +x (tangent 1,0). expected sides alternate.
+        gates = [{'id': 'G%d' % (i + 1), 'x': 10.0 * i, 'z': 0.0, 'tx': 1.0, 'tz': 0.0,
+                  'expected': (1, -1, 1)[i]} for i in range(3)]
+        return self.tab({'slalom': {'half_m': 5.5, 'runs': [{'id': 'S1', 'gates': gates}]}})
+
+    def weave(self, machine, sides, z_by_gate=None):
+        for i, side in enumerate(sides):
+            z = side * 1.5
+            # lateral = (x-gx)*-tz + (z-gz)*tx = z for tx=1: side comes from the z offset
+            machine.observe(machine, self.tab({'x': 10.0 * i - 1, 'z': z}), self.tab({'x': 10.0 * i + 1, 'z': z}))
+
+    def test_slalom_correct_weave_has_no_violation(self):
+        m = self.detectors.slalom_runs(self.slalom_cfg())
+        self.weave(m, (1, -1, 1))
+        r = m.finalize(m)
+        self.assertEqual(len(r.violations), 0)
+        self.assertEqual(len(r.incomplete), 0)
+
+    def test_slalom_wrong_side_is_reported_per_gate(self):
+        m = self.detectors.slalom_runs(self.slalom_cfg())
+        self.weave(m, (1, 1, 1))   # missed the alternation at gate 2
+        r = m.finalize(m)
+        self.assertEqual([r.violations[i] for i in range(1, len(r.violations) + 1)], ['G2'])
+
+    def test_slalom_skipped_gate_is_incomplete_not_penalised_and_resets(self):
+        m = self.detectors.slalom_runs(self.slalom_cfg())
+        for i in (0, 2):   # drove around gate 2 entirely (z far outside the half width)
+            m.observe(m, self.tab({'x': 10.0 * i - 1, 'z': 1.5}), self.tab({'x': 10.0 * i + 1, 'z': 1.5}))
+        r = m.finalize(m)
+        self.assertEqual(len(r.violations), 0)
+        self.assertEqual(r.incomplete[1], 'S1')
+        m.reset(m)
+        self.weave(m, (1, -1, 1))
+        self.assertEqual(len(m.finalize(m).violations), 0)
+        self.assertEqual(len(m.finalize(m).incomplete), 0)
+
+    def test_slalom_config_validation(self):
+        bad = self.tab({'slalom': {'runs': [{'id': 'S1', 'gates': [
+            {'id': 'a', 'x': 0, 'z': 0, 'tx': 2, 'tz': 0, 'expected': 1}] * 3}]}})
+        self.assertIsNone(self.detectors.slalom_runs(bad))
+        self.assertIsNone(self.detectors.slalom_runs(self.tab({})))
+
+
 @unittest.skipUnless((ROOT / 'assets/source/FSAEJ_Endurance.zip').is_file(),
                      'JSAE track archive is proprietary and gitignored (assets/source); not present in CI')
 class ArchiveInspectionTests(unittest.TestCase):

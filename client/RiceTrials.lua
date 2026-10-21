@@ -11,16 +11,56 @@ local lapNumbers, lastResetCounter = {}, nil
 -- Advisory cone-contact candidates (optional cone_config.lua + detectors.cone_boxes). They go
 -- to the server as payload.detector for the reviewer and NEVER into events/penalties.
 local coneMachine, conePrev, coneIds = nil, nil, nil
+-- Automatic penalties (cone_config.lua auto_penalties = true): geometric cone boxes, asphalt-ring
+-- off-course and reference-line slalom sides. They fill `events` of a PENDING_REVIEW lap; the
+-- server never makes them official while scoring is disarmed and the admin can edit every count.
+local limitsMachine, slalomMachine, autoPenalties, maxAutoCones, maxWheelsOut = nil, nil, false, 25, 0
+local coneExcluded, autoCones = {}, 0
 local function coneReset()
-  conePrev, coneIds = nil, {}
+  conePrev, coneIds, maxWheelsOut, autoCones = nil, {}, 0, 0
   if coneMachine then coneMachine:reset() end
+  if limitsMachine then limitsMachine:reset() end
+  if slalomMachine then slalomMachine:reset() end
+end
+local function slalomResult()
+  if not slalomMachine then return nil end
+  local ok, res = pcall(slalomMachine.finalize, slalomMachine)
+  return ok and type(res) == 'table' and res or nil
 end
 local function coneDetector()
-  if not coneMachine then return nil end
-  local list = {}
-  for i, id in ipairs(coneIds or {}) do if i <= 60 then list[#list+1] = id end end
-  return {cone_source='geometric_candidate_uncertified', cone_candidate_count=coneMachine.count,
-    cone_candidates=list, cone_shrink_m=coneMachine.shrink}
+  if not (coneMachine or limitsMachine or slalomMachine) then return nil end
+  local out = {auto_penalties = autoPenalties, max_wheels_outside = maxWheelsOut}
+  if coneMachine then
+    local list = {}
+    for i, id in ipairs(coneIds or {}) do if i <= 60 then list[#list+1] = id end end
+    out.cone_source, out.cone_candidate_count, out.cone_candidates, out.cone_shrink_m =
+      'geometric_candidate_uncertified', coneMachine.count, list, coneMachine.shrink
+    out.cone_auto_count = autoCones
+  end
+  if limitsMachine then
+    out.off_course_source, out.off_course_count, out.off_margin_m =
+      'geometric_asphalt_uncertified', limitsMachine.count, limitsMachine.margin
+  end
+  local sl = slalomResult()
+  if sl then
+    out.slalom_source, out.slalom_violations, out.slalom_incomplete =
+      'geometric_reference_line_uncertified', sl.violations, sl.incomplete
+  end
+  return out
+end
+-- events JSON: a key exists only when its detector runs ("unknown" is never reported as zero).
+local function eventsJson()
+  if not autoPenalties then return '{}' end
+  local parts = {}
+  if coneMachine then parts[#parts+1] = '"cone":'..math.min(autoCones, maxAutoCones) end
+  if limitsMachine then parts[#parts+1] = '"off_course":'..math.min(limitsMachine.count, 100) end
+  local sl = slalomResult()
+  if sl then
+    local ids = {}
+    for _, id in ipairs(sl.violations) do ids[#ids+1] = '"'..id..'"' end
+    parts[#parts+1] = '"slalom":['..table.concat(ids, ',')..']'
+  end
+  return '{'..table.concat(parts, ',')..'}'
 end
 -- HUD and diagnostics are optional: a load failure degrades to the plain text window
 -- and never blocks timing or the queue.
@@ -60,13 +100,21 @@ end
 
 function script.configureCones(cfg)
   local okDet, detectors = pcall(require, 'detectors')
-  coneMachine = nil
+  coneMachine, limitsMachine, slalomMachine, autoPenalties = nil, nil, nil, false
   if okDet and type(detectors) == 'table' and type(detectors.cone_boxes) == 'function' then
     coneMachine = detectors.cone_boxes(cfg)
     if coneMachine then coneMachine.shrink = cfg.shrink_m end
+    local okL, lim = pcall(detectors.track_limits, cfg)
+    if okL then limitsMachine = lim end
+    local okS, sl = pcall(detectors.slalom_runs, cfg)
+    if okS then slalomMachine = sl end
+    autoPenalties = cfg.auto_penalties == true and (coneMachine ~= nil or limitsMachine ~= nil or slalomMachine ~= nil)
+    maxAutoCones = type(cfg.max_auto_cones) == 'number' and cfg.max_auto_cones or 25
+    coneExcluded = {}
+    if type(cfg.ref_line_cones) == 'table' then for _, id in ipairs(cfg.ref_line_cones) do coneExcluded[id] = true end end
   end
   coneReset()
-  return coneMachine ~= nil
+  return coneMachine ~= nil or limitsMachine ~= nil or slalomMachine ~= nil
 end
 local function validGate(g)
   if type(g) ~= 'table' or type(g.a) ~= 'table' or type(g.b) ~= 'table' or
@@ -335,14 +383,30 @@ function script.update(dt)
   elapsed = elapsed + dt
   local wasTimed = route.phase == 'timed' and started ~= nil
   local look = field(car, 'look')
-  local pose = {x=current.x, z=current.z, lx=look and field(look, 'x'), lz=look and field(look, 'z')}
+  local lx, lz = look and field(look, 'x'), look and field(look, 'z')
+  if not (type(lx) == 'number' and type(lz) == 'number') and previous then
+    -- Heading fallback: direction of travel (only meaningful above ~0.05 m per frame).
+    local mx, mz = current.x-previous.x, current.z-previous.z
+    local len = math.sqrt(mx*mx+mz*mz)
+    if len > 0.05 then lx, lz = mx/len, mz/len end
+  end
+  local pose = {x=current.x, z=current.z, lx=lx, lz=lz}
   local transition, fraction = route:observe(previous, current)
-  if coneMachine then
+  if coneMachine or limitsMachine or slalomMachine then
     if wasTimed then
-      local okC, res = pcall(coneMachine.observe, coneMachine, conePrev, pose)
-      if okC and type(res) == 'table' and res.status == 'candidate' then
-        for _, id in ipairs(res.cones) do coneIds[#coneIds+1] = id end
+      if coneMachine then
+        local okC, res = pcall(coneMachine.observe, coneMachine, conePrev, pose)
+        if okC and type(res) == 'table' and res.status == 'candidate' then
+          for _, id in ipairs(res.cones) do
+            coneIds[#coneIds+1] = id
+            if not coneExcluded[id] then autoCones = autoCones + 1 end
+          end
+        end
       end
+      if limitsMachine then pcall(limitsMachine.observe, limitsMachine, pose, dt) end
+      if slalomMachine and conePrev then pcall(slalomMachine.observe, slalomMachine, conePrev, pose) end
+      local wo = field(car, 'wheelsOutside')
+      if type(wo) == 'number' and wo > maxWheelsOut then maxWheelsOut = wo end
     end
     conePrev = pose
   end
@@ -377,7 +441,7 @@ function script.update(dt)
     local ok, serialized = pcall(JSON.stringify, payload)
     if ok and type(serialized) == 'string' and serialized:sub(1,1) == '{' and
         serialized:sub(-1) == '}' then
-      serialized = serialized:sub(1,-2)..',"events":{}}'
+      serialized = serialized:sub(1,-2)..',"events":'..eventsJson()..'}'
     else serialized = nil end
     if not ok or type(serialized) ~= 'string' or not queue:add(id, serialized) then
       fail('QUEUE_UNAVAILABLE / NOT SENT'); return end

@@ -221,4 +221,50 @@ class ConeCandidates(unittest.TestCase):
         payload = json.loads(next(r for r in requests if r[1].endswith('/api/laps'))[3])
         self.assertNotIn('detector', payload)
 
+class AutoPenalties(unittest.TestCase):
+    """auto_penalties = true fills `events` (cone / off_course / slalom) of a PENDING_REVIEW lap."""
+    def cfg(self, to_lua, **extra):
+        c = {'version': 'cone-boxes-v1', 'half_width_m': 0.705, 'half_length_m': 1.48, 'shrink_m': 0.15,
+             'cone_radius_m': 0.125, 'min_depth_m': 0.03, 'auto_penalties': True,
+             'cones': [{'id': 'HIT', 'x': 0.0, 'z': -2.0}, {'id': 'REF', 'x': 0.0, 'z': -3.0}],
+             'limits': {'outer': [[-100, -100], [100, -100], [100, 100], [-100, 100]],
+                        'inner': [[500, 500], [501, 500], [501, 501], [500, 501]]}}
+        c.update(extra)
+        return to_lua(c)
+
+    def lap(self, **extra):
+        lua, storage, position, requests, reply, to_lua = harness()
+        lua.execute("local p = ac.getCar; ac.getCar = function(n) local c = p(n); c.look = {x=0, y=0, z=-1}; return c end")
+        script = lua.globals().script
+        script.connect('http://127.0.0.1:8080', 'station-1', 'secret')
+        script.configure(config(to_lua))
+        self.assertTrue(script.configureCones(self.cfg(to_lua, **extra)))
+        reply(0, {'station_id': 'station-1', 'session_id': 's1', 'pilot_id': 'p1'})
+        drive_lap(lua, position)
+        post = next(r for r in requests if r[1].endswith('/api/laps'))
+        return json.loads(post[3])
+
+    def test_cone_and_off_course_keys_are_reported_and_review_is_still_required(self):
+        payload = self.lap()
+        self.assertEqual(payload['status'], 'PENDING_REVIEW')
+        self.assertEqual(payload['events']['cone'], 2)
+        self.assertEqual(payload['events']['off_course'], 0)
+        self.assertNotIn('slalom', payload['events'])      # no slalom detector configured: key absent, not 0
+        self.assertTrue(payload['detector']['auto_penalties'])
+
+    def test_reference_line_cones_are_candidates_but_never_automatic(self):
+        payload = self.lap(ref_line_cones=['REF'])
+        self.assertEqual(sorted(payload['detector']['cone_candidates']), ['HIT', 'REF'])
+        self.assertEqual(payload['events']['cone'], 1)
+        self.assertEqual(payload['detector']['cone_auto_count'], 1)
+
+    def test_without_auto_flag_events_stay_empty(self):
+        payload = self.lap(auto_penalties=False)
+        self.assertEqual(payload['events'], {})
+
+    def test_auto_cone_count_is_capped(self):
+        payload = self.lap(max_auto_cones=1)
+        self.assertEqual(payload['events']['cone'], 1)
+
+
 if __name__ == '__main__': unittest.main()

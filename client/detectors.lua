@@ -174,4 +174,142 @@ function M.cone_boxes(config)
   return machine
 end
 
+-- ---------------------------------------------------------------- track limits (off-course)
+local function pip(poly, x, z)
+  local inside, j = false, #poly
+  for i = 1, #poly do
+    local a, b = poly[i], poly[j]
+    if (a[2] > z) ~= (b[2] > z) and x < (b[1] - a[1]) * (z - a[2]) / (b[2] - a[2]) + a[1] then inside = not inside end
+    j = i
+  end
+  return inside
+end
+local function edge_distance(poly, x, z)
+  local best, n = math.huge, #poly
+  for i = 1, n do
+    local a, b = poly[i], poly[i % n + 1]
+    local dx, dz = b[1] - a[1], b[2] - a[2]
+    local q = dx * dx + dz * dz
+    local t = q > 0 and math.max(0, math.min(1, ((x - a[1]) * dx + (z - a[2]) * dz) / q)) or 0
+    local d = math.sqrt((x - a[1] - t * dx) ^ 2 + (z - a[2] - t * dz) ^ 2)
+    if d < best then best = d end
+  end
+  return best
+end
+local function valid_polygon(poly)
+  if type(poly) ~= 'table' or #poly < 3 then return false end
+  for _, p in ipairs(poly) do
+    if type(p) ~= 'table' or not finite(p[1]) or not finite(p[2]) then return false end
+  end
+  return true
+end
+
+-- Off-course = ALL FOUR wheel contact points outside the asphalt ring (FSAE rule), beyond a
+-- tolerance margin, for hold_s; one event per excursion, re-armed after rearm_s back on course.
+function M.track_limits(config)
+  local lim = type(config) == 'table' and config.limits or nil
+  if type(lim) ~= 'table' or not valid_polygon(lim.outer) or not valid_polygon(lim.inner) then return nil end
+  local function opt(v, d) return finite(v) and v >= 0 and v or d end
+  local margin, hold, rearm = opt(config.off_margin_m, 0.3), opt(config.off_hold_s, 0.15), opt(config.off_rearm_s, 0.5)
+  local hw, hl = opt(config.wheel_half_track_m, 0.6), opt(config.wheel_half_base_m, 0.85)
+  local outer, inner = lim.outer, lim.inner
+  local machine = {count = 0, ids = {}, official = false, confidence = 'geometric_asphalt_uncertified',
+    out_s = 0, in_s = 0, active = false, margin = margin}
+  function machine:reset() self.count, self.ids, self.out_s, self.in_s, self.active = 0, {}, 0, 0, false end
+  local function outside(x, z)
+    if pip(outer, x, z) and not pip(inner, x, z) then return false end
+    return math.min(edge_distance(outer, x, z), edge_distance(inner, x, z)) > margin
+  end
+  function machine:observe(pose, dt)
+    if type(pose) ~= 'table' or not point(pose) or not finite(pose.lx) or not finite(pose.lz)
+        or not finite(dt) or dt <= 0 or dt > 1 then return {status = 'unknown'} end
+    local norm = math.sqrt(pose.lx ^ 2 + pose.lz ^ 2)
+    if norm < 0.5 then return {status = 'unknown'} end
+    local fx, fz = pose.lx / norm, pose.lz / norm
+    local lx, lz = -fz, fx
+    local allout = false
+    -- The car centre inside the ring can never mean four wheels out (ring is ~10 m wide).
+    if not (pip(outer, pose.x, pose.z) and not pip(inner, pose.x, pose.z)) then
+      allout = true
+      for _, sz in ipairs({-1, 1}) do for _, sx in ipairs({-1, 1}) do
+        if allout and not outside(pose.x + fx * sz * hl + lx * sx * hw, pose.z + fz * sz * hl + lz * sx * hw) then allout = false end
+      end end
+    end
+    if allout then
+      self.out_s, self.in_s = self.out_s + dt, 0
+      if not self.active and self.out_s >= hold then
+        self.active = true
+        self.count = self.count + 1
+        self.ids[#self.ids + 1] = 'OC' .. self.count
+        return {status = 'off_course', count = self.count, new = true}
+      end
+      return {status = self.active and 'off_course' or 'on_course', count = self.count}
+    end
+    self.out_s, self.in_s = 0, self.in_s + dt
+    if self.active and self.in_s >= rearm then self.active = false end
+    return {status = 'on_course', count = self.count}
+  end
+  return machine
+end
+
+-- ---------------------------------------------------------------- slalom (pylon runs)
+-- Each gate is a line through a pylon perpendicular to the direction of travel. The expected
+-- side (+1/-1 of the lateral offset from the pylon) comes from the reference racing line: it
+-- weaves around the pylons, so the side it takes is the side the car must take. A gate crossed
+-- on the other side is one slalom penalty. A run with a gate never crossed is INCOMPLETE and
+-- is reported, never penalised automatically.
+function M.slalom_runs(config)
+  local sl = type(config) == 'table' and config.slalom or nil
+  if type(sl) ~= 'table' or type(sl.runs) ~= 'table' or #sl.runs < 1 then return nil end
+  local ids = {}
+  for _, run in ipairs(sl.runs) do
+    if type(run) ~= 'table' or type(run.id) ~= 'string' or type(run.gates) ~= 'table' or #run.gates < 3 then return nil end
+    for _, g in ipairs(run.gates) do
+      if type(g) ~= 'table' or type(g.id) ~= 'string' or ids[g.id] or not finite(g.x) or not finite(g.z)
+          or not finite(g.tx) or not finite(g.tz) or (g.expected ~= 1 and g.expected ~= -1)
+          or math.abs(math.sqrt(g.tx ^ 2 + g.tz ^ 2) - 1) > 0.01 then return nil end
+      ids[g.id] = true
+    end
+  end
+  local half = finite(sl.half_m) and sl.half_m > 0 and sl.half_m or 5.5
+  local machine = {official = false, confidence = 'geometric_reference_line_uncertified', passes = {}}
+  function machine:reset() self.passes = {} end
+  function machine:observe(previous, current)
+    if not point(previous) or not point(current) then return {status = 'unknown'} end
+    local crossed = {}
+    for _, run in ipairs(sl.runs) do
+      for i, g in ipairs(run.gates) do
+        local d0 = (previous.x - g.x) * g.tx + (previous.z - g.z) * g.tz
+        local d1 = (current.x - g.x) * g.tx + (current.z - g.z) * g.tz
+        if d0 < 0 and d1 >= 0 and not self.passes[g.id] then
+          local t = d0 / (d0 - d1)
+          local x, z = previous.x + t * (current.x - previous.x), previous.z + t * (current.z - previous.z)
+          local lateral = (x - g.x) * -g.tz + (z - g.z) * g.tx
+          if math.abs(lateral) <= half then
+            self.passes[g.id] = {sign = lateral >= 0 and 1 or -1, lateral = lateral}
+            crossed[#crossed + 1] = g.id
+          end
+        end
+      end
+    end
+    return {status = #crossed > 0 and 'gate' or 'pending', gates = crossed}
+  end
+  -- Lap result: violations (gate ids passed on the wrong side) and runs not fully observed.
+  function machine:finalize()
+    local violations, incomplete = {}, {}
+    for _, run in ipairs(sl.runs) do
+      local seen = 0
+      for _, g in ipairs(run.gates) do if self.passes[g.id] then seen = seen + 1 end end
+      if seen > 0 and seen < #run.gates then incomplete[#incomplete + 1] = run.id end
+      if seen == #run.gates then
+        for _, g in ipairs(run.gates) do
+          if self.passes[g.id].sign ~= g.expected then violations[#violations + 1] = g.id end
+        end
+      end
+    end
+    return {violations = violations, incomplete = incomplete}
+  end
+  return machine
+end
+
 return M
