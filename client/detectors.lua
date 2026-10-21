@@ -255,8 +255,8 @@ end
 -- ---------------------------------------------------------------- slalom (pylon runs)
 -- Each gate is a line through a pylon perpendicular to the direction of travel. The expected
 -- side (+1/-1 of the lateral offset from the pylon) comes from the reference racing line: it
--- weaves around the pylons, so the side it takes is the side the car must take. A gate crossed
--- on the other side is one slalom penalty. A run with a gate never crossed is INCOMPLETE and
+-- weaves around the pylons and tells which entry phase is preferred, but either phase is legal: only a
+-- break of the alternation (the minimum set of gates on the wrong side) is a slalom penalty. A run with a gate never crossed is INCOMPLETE and
 -- is reported, never penalised automatically.
 function M.slalom_runs(config)
   local sl = type(config) == 'table' and config.slalom or nil
@@ -302,9 +302,16 @@ function M.slalom_runs(config)
       for _, g in ipairs(run.gates) do if self.passes[g.id] then seen = seen + 1 end end
       if seen > 0 and seen < #run.gates then incomplete[#incomplete + 1] = run.id end
       if seen == #run.gates then
+        -- Both entry phases are legal: what is required is that the sides ALTERNATE. The reference
+        -- line only picks the phase when both fit equally well, so a driver who enters on the
+        -- other side and weaves correctly is never penalised on every pylon.
+        local wrongAi, wrongOther = {}, {}
         for _, g in ipairs(run.gates) do
-          if self.passes[g.id].sign ~= g.expected then violations[#violations + 1] = g.id end
+          if self.passes[g.id].sign ~= g.expected then wrongAi[#wrongAi + 1] = g.id
+          else wrongOther[#wrongOther + 1] = g.id end
         end
+        local pick = #wrongAi <= #wrongOther and wrongAi or wrongOther
+        for _, id in ipairs(pick) do violations[#violations + 1] = id end
       end
     end
     return {violations = violations, incomplete = incomplete}

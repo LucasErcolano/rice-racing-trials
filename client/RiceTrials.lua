@@ -464,7 +464,11 @@ function script.update(dt)
       if slalomMachine and conePrev then
         local okS, res = pcall(slalomMachine.observe, slalomMachine, conePrev, pose)
         if okS and type(res) == 'table' and type(res.gates) == 'table' then
-          for _, id in ipairs(res.gates) do gateTimes[id] = elapsed end
+          for _, id in ipairs(res.gates) do
+            gateTimes[id] = elapsed
+            local pass = slalomMachine.passes and slalomMachine.passes[id]
+            if diag and pass then pcall(diag.event, diag, 'slalom_gate', {id=id, sign=pass.sign, lateral=pass.lateral}) end
+          end
         end
       end
       local wo = field(car, 'wheelsOutside')

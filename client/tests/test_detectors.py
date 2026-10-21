@@ -194,6 +194,28 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(len(r.violations), 0)
         self.assertEqual(len(r.incomplete), 0)
 
+    def test_slalom_opposite_entry_phase_is_not_penalised(self):
+        # Driver enters on the other side than the reference line but alternates correctly.
+        m = self.detectors.slalom_runs(self.slalom_cfg())
+        self.weave(m, (-1, 1, -1))
+        r = m.finalize(m)
+        self.assertEqual(len(r.violations), 0)
+
+    def test_slalom_five_gate_run_inverted_is_zero_not_five(self):
+        gates = [{'id': 'G%d' % (i + 1), 'x': 10.0 * i, 'z': 0.0, 'tx': 1.0, 'tz': 0.0,
+                  'expected': (-1, 1, -1, 1, -1)[i]} for i in range(5)]
+        m = self.detectors.slalom_runs(self.tab({'slalom': {'half_m': 5.5, 'runs': [{'id': 'S2', 'gates': gates}]}}))
+        self.weave(m, (1, -1, 1, -1, 1))
+        self.assertEqual(len(m.finalize(m).violations), 0)
+
+    def test_slalom_one_break_costs_one_in_either_phase(self):
+        gates = [{'id': 'G%d' % (i + 1), 'x': 10.0 * i, 'z': 0.0, 'tx': 1.0, 'tz': 0.0,
+                  'expected': (1, -1, 1, -1, 1)[i]} for i in range(5)]
+        m = self.detectors.slalom_runs(self.tab({'slalom': {'half_m': 5.5, 'runs': [{'id': 'S2', 'gates': gates}]}}))
+        self.weave(m, (-1, -1, 1, -1, 1))   # opposite phase, but pylon 1 is passed on the wrong side
+        r = m.finalize(m)
+        self.assertEqual([r.violations[i] for i in range(1, len(r.violations) + 1)], ['G1'])
+
     def test_slalom_wrong_side_is_reported_per_gate(self):
         m = self.detectors.slalom_runs(self.slalom_cfg())
         self.weave(m, (1, 1, 1))   # missed the alternation at gate 2
