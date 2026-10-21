@@ -224,6 +224,24 @@ if penaltyMod then
   penaltyStore = penaltyMod.new({dir=journalDir(), io=io, storage=ac and ac.storage,
     json={encode=function(v) return JSON.stringify(v) end, decode=function(t) return JSON.parse(t) end}})
 end
+-- Native AC lap counter as a local backup record (own journal, never sent to /api/laps).
+local nativeLaps
+do
+  local okN, nativeMod = pcall(require, 'native_laps')
+  if okN and type(nativeMod) == 'table' and JSON and JSON.stringify and JSON.parse then
+    local okJ, nj = pcall(journalModule.new, {dir=journalDir(), name=nativeMod.JOURNAL_NAME}, {
+      io=io, storage=ac and ac.storage, degraded_key='rice_trials_native_laps_v1',
+      legacy_key='rice_trials_native_laps_legacy_unused',
+      json={encode=function(v) return JSON.stringify(v) end, decode=function(t) return JSON.parse(t) end}})
+    if okJ then
+      local okC, created = pcall(nativeMod.new, {journal=nj, nonce=function() return nonce end,
+        context=function() return {station_id=station, session_id=assignment and assignment.session_id,
+          pilot_id=assignment and assignment.pilot_id} end,
+        on_event=function(kind, t) if diag then pcall(diag.event, diag, kind, t) end end})
+      if okC and type(created) == 'table' then nativeLaps = created end
+    end
+  end
+end
 -- Last authenticated assignment survives a network outage for at most this long, measured
 -- on the game clock (sum of update dt), not os.clock (CPU time in plain Lua).
 local ASSIGNMENT_STALE_S = 600
@@ -356,6 +374,7 @@ end
 if ac and type(ac.onSessionStart) == 'function' then
   pcall(ac.onSessionStart, function()
     resetRoute('SESSION_START'); lastResetCounter = nil; script.refreshAssignment()
+    if nativeLaps then pcall(nativeLaps.session_start, nativeLaps) end
   end)
 end
 -- FFI cdata raises on fields its CSP version does not define: read optional fields safely.
@@ -387,6 +406,10 @@ function script.update(dt)
   if penaltyStore then pcall(penaltyStore.flush, penaltyStore, dt) end
   autostart()
   diagnose(dt)
+  if nativeLaps and ac and type(ac.getCar) == 'function' then
+    local okC, nativeCar = pcall(ac.getCar, 0)
+    if okC and nativeCar then pcall(nativeLaps.observe, nativeLaps, nativeCar, dt) end
+  end
   if type(dt) ~= 'number' or dt <= 0 or dt > 1 then resetRoute(); return end
   retryClock, heartbeatClock, gameClock = retryClock + dt, heartbeatClock + dt, gameClock + dt
   if retryClock >= 5 then retryClock = 0; sendPending() end
@@ -498,6 +521,7 @@ function script.update(dt)
     if not persist() then return end
     crossings = crossings + 1
     lastResult = {raw_seconds=raw/1000}
+    if nativeLaps then pcall(nativeLaps.note_route_lap, nativeLaps, id, raw) end
     status = 'PENDING_REVIEW / LOCALLY STORED / NOT SCORED'
     sendPending()
     started = crossedAt
@@ -507,6 +531,18 @@ function script.update(dt)
   end
   previous = current
 end
+local function drawNativeLaps()
+  if nativeLaps then
+    local st = nativeLaps:stats()
+    local d = nativeLaps:last()
+    ui.text(string.format('AC native laps: %d saved (%s)%s', st.count, tostring(st.state),
+      st.lapcount_available and '' or ' / lapCount NOT available'))
+    if d and d.time_ms then
+      ui.text(string.format('Last native: %.3f s %s (backup, NOT SCORED)', d.time_ms/1000,
+        d.valid == false and 'INVALID' or 'valid'))
+    end
+  end
+end
 local function plainWindow()
   ui.text('Rice Driver Trials: NOT VALIDATED on CSP/Windows')
   ui.text(status)
@@ -515,6 +551,7 @@ local function plainWindow()
   ui.text('Pending local reviews: '..tostring(#queue.entries))
   ui.text('Queue persistence: '..tostring(persistence))
   if lastResult then ui.text(string.format('Provisional route: %.3f s (NOT SCORED)', lastResult.raw_seconds)) end
+  drawNativeLaps()
   if coneMachine then
     ui.text(string.format('Cone CANDIDATES this lap: %d (advisory, reviewer decides)', coneMachine.count))
   else ui.text('Cone contacts/off-course: unknown; manual review only') end
@@ -564,7 +601,8 @@ function script.penaltyStore() return penaltyStore end
 function script.windowPenalties(dt)
   if penaltyMod and penaltyStore then
     local ok = pcall(penaltyMod.draw, penaltyStore, ui, ac, dt)
-    if ok then return end
+    if ok then pcall(drawNativeLaps); return end
   end
   ui.text('Panel de penalizaciones no disponible')
+  pcall(drawNativeLaps)
 end
