@@ -49,6 +49,56 @@ def corrected_ms(event, raw_ms, events):
     return (right + left) // 2 + doo * p['doo']
 
 
+def corrected_ms_v2(raw_ms, events, settings):
+    """Score V2 evidence deterministically, deduplicating by cone and incident identity."""
+    if type(raw_ms) is not int or not 0 < raw_ms <= 3600000:
+        return None
+    required = ('enable_cones', 'enable_off_track', 'enable_slalom', 'cone_penalty_ms',
+                'off_course_penalty_ms', 'slalom_penalty_ms')
+    if not isinstance(settings, dict) or any(key not in settings for key in required):
+        return None
+    if any(type(settings[key]) is not bool for key in required[:3]):
+        return None
+    rates = [settings[key] for key in required[3:]]
+    if any(type(rate) is not int or not 0 <= rate <= 3600000 for rate in rates):
+        return None
+    if not isinstance(events, list) or len(events) > 10000:
+        return None
+    cones, incidents = set(), {}
+    for event in events:
+        if not isinstance(event, dict):
+            return None
+        kind = event.get('type')
+        if kind not in ('cone_contact', 'off_course', 'slalom_violation'):
+            continue
+        if type(event.get('penalizable')) is not bool:
+            return None
+        if not event['penalizable']:
+            continue
+        if kind == 'cone_contact':
+            identifier = event.get('cone_id')
+            if not isinstance(identifier, str) or not identifier:
+                return None
+            cones.add(identifier)
+        else:
+            identifier = event.get('incident_id')
+            if not isinstance(identifier, str) or not identifier:
+                return None
+            # A true off-course event represents the incident if both detectors report it.
+            previous = incidents.get(identifier)
+            if kind == 'off_course' or previous is None:
+                incidents[identifier] = kind
+    total = raw_ms
+    if settings['enable_cones']:
+        total += len(cones) * settings['cone_penalty_ms']
+    for kind in incidents.values():
+        if kind == 'off_course' and settings['enable_off_track']:
+            total += settings['off_course_penalty_ms']
+        elif kind == 'slalom_violation' and settings['enable_slalom']:
+            total += settings['slalom_penalty_ms']
+    return total if total <= 7200000 else None
+
+
 def resolve_status(proposed, detector_ok):
     """Server-side status policy: a VALID claim without a healthy mandatory detector is DETECTOR_ERROR."""
     if proposed not in STATUSES:

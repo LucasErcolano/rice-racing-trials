@@ -22,14 +22,15 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 try:
-    from server import scoring
+    from server import penalties_v2, scoring
 except ImportError:  # executed as server/app.py or frozen with PyInstaller
+    import penalties_v2
     import scoring
 
 ROOT = Path(__file__).resolve().parent.parent
 ID = re.compile(r'^[A-Za-z0-9_.-]{1,80}$')
 HEARTBEAT_TTL = timedelta(seconds=90)
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 SYNC_ERROR_LIMIT = 1000          # rows kept in sync_errors (oldest pruned)
 DETECTOR_MAX_BYTES = 4096        # serialized payload.detector
 SYNC_MAX_BYTES = 2048            # serialized payload.sync
@@ -127,11 +128,13 @@ PAYLOAD_EXTRAS = ('lap_number', 'assignment_revision', 'rules_version', 'scoring
 
 
 class Store:
-    def __init__(self, path, calibrated_configs=(), scoring_armed=False):
+    def __init__(self, path, calibrated_configs=(), scoring_armed=False, penalties_v2_enabled=False):
         self.path = Path(path)
         # Production is unarmed: no in-game physical commissioning was performed.
         # The switch is for isolated scoring contract tests, never the CLI.
         self.scoring_armed = scoring_armed
+        # V2 has a separate opt-in endpoint; V1 submission and status logic stay unchanged.
+        self.penalties_v2_enabled = penalties_v2_enabled is True
         # No track is trusted by default: client self-attestation is insufficient.
         self.calibrated_configs = frozenset(calibrated_configs)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -377,6 +380,159 @@ class Store:
         with self.connect() as db:
             return {'reviews': [dict(row) for row in db.execute(query + ' ORDER BY id', args)]}
 
+    def review_penalties_v2(self, data):
+        station, lap_id = identifier(data.get('station_id')), identifier(data.get('lap_id'))
+        reviewer, reason, counts = data.get('reviewer'), data.get('reason'), data.get('counts')
+        if (not text_field(reviewer) or not text_field(reason) or not isinstance(counts, dict)
+                or set(counts) != {'touched_cones', 'off_course_events', 'missed_slaloms'}
+                or any(type(value) is not int or not 0 <= value <= 100 for value in counts.values())):
+            raise Problem(400, 'invalid V2 penalty review')
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            lap = db.execute('SELECT * FROM laps WHERE station_id=? AND lap_id=?', (station, lap_id)).fetchone()
+            replay = db.execute('SELECT settings_json FROM penalties_v2_replays WHERE station_id=? AND lap_id=?', (station, lap_id)).fetchone()
+            if not lap or not replay or lap['event'] != 'endurance':
+                raise Problem(404, 'V2 lap/replay not found')
+            settings = json.loads(replay['settings_json'])
+            evidence = []
+            for i in range(counts['touched_cones']):
+                evidence.append({'type': 'cone_contact', 'cone_id': f'review-cone-{i}', 'penalizable': True})
+            for kind, count in (('off_course', counts['off_course_events']), ('slalom_violation', counts['missed_slaloms'])):
+                for i in range(count):
+                    evidence.append({'type': kind, 'incident_id': f'review-{kind}-{i}', 'penalizable': True})
+            preview = scoring.corrected_ms_v2(lap['raw_ms'], evidence, settings)
+            if preview is None:
+                raise Problem(400, 'V2 penalties cannot be scored with stored settings')
+            before = json.loads(lap['events'])
+            after = dict(counts)
+            corrected = preview if lap['status'] == 'VALID' and self.scoring_armed else None
+            db.execute('UPDATE laps SET corrected_ms=? WHERE station_id=? AND lap_id=?', (corrected, station, lap_id))
+            db.execute('INSERT INTO reviews (station_id,lap_id,session_id,reviewer,decision,reason,before_status,after_status,created_utc,calibration_reference,kind,before_events,after_events,before_corrected_ms,after_corrected_ms) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                       (station, lap_id, lap['session_id'], reviewer.strip(), 'penalties', reason.strip(), lap['status'], lap['status'], now_utc(), lap['calibration_reference'], 'penalties_v2', compact(before), compact({'counts': after, 'corrected_preview_ms': preview}), lap['corrected_ms'], corrected))
+        return {'station_id': station, 'lap_id': lap_id, 'status': lap['status'], 'counts': after,
+                'corrected_ms': corrected, 'corrected_preview_ms': preview, 'official': corrected is not None}
+
+    def reviews_v2(self, station, lap_id):
+        station, lap_id = identifier(station), identifier(lap_id)
+        with self.connect() as db:
+            rows = db.execute('SELECT * FROM reviews WHERE station_id=? AND lap_id=? AND kind=? ORDER BY id',
+                              (station, lap_id, 'penalties_v2')).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            after = json.loads(item.pop('after_events'))
+            item['counts'] = after['counts']
+            item['corrected_preview_ms'] = after['corrected_preview_ms']
+            result.append(item)
+        return {'reviews': result}
+
+    def configure_penalties_v2(self, data):
+        station, track_config = identifier(data.get('station_id')), identifier(data.get('track_config'))
+        reference, config, settings = data.get('reference'), data.get('config'), data.get('settings')
+        if not text_field(reference, 200) or not isinstance(config, dict) or not isinstance(settings, dict):
+            raise Problem(400, 'invalid V2 calibration')
+        if config.get('schema') != penalties_v2.CONFIG_SCHEMA or config.get('track') != track_config:
+            raise Problem(400, 'V2 geometry track must match track_config')
+        try:
+            normalized = penalties_v2._settings(settings)
+            penalties_v2.validate_config(config, normalized)
+            if len(compact(config).encode('utf-8')) > 4_000_000:
+                raise Problem(413, 'V2 geometry configuration too large')
+        except penalties_v2.TrajectoryError as error:
+            raise Problem(400, str(error)) from None
+        config_json, settings_json = compact(config), compact(normalized)
+        now = now_utc()
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            db.execute('INSERT INTO penalties_v2_configs (station_id,track_config,config_json,settings_json,reference,active,updated_utc) VALUES (?,?,?,?,?,1,?) ON CONFLICT(station_id,track_config) DO UPDATE SET config_json=excluded.config_json, settings_json=excluded.settings_json, reference=excluded.reference, active=1, updated_utc=excluded.updated_utc',
+                       (station, track_config, config_json, settings_json, reference.strip(), now))
+            db.execute('INSERT INTO calibrations (station_id,track_config,reference,operator,active,updated_utc) VALUES (?,?,?,?,1,?) ON CONFLICT(station_id,track_config) DO UPDATE SET reference=excluded.reference, operator=excluded.operator, active=1, updated_utc=excluded.updated_utc',
+                       (station, track_config, reference.strip(), 'v2-admin', now))
+        return {'station_id': station, 'track_config': track_config, 'reference': reference.strip(),
+                'active': True, 'updated_utc': now}
+
+    def submit_v2(self, data, station):
+        if not self.penalties_v2_enabled:
+            raise Problem(404, 'V2 ingestion is disabled')
+        if type(data.get('protocol_version')) is not int or data['protocol_version'] != 2:
+            raise Problem(400, 'unsupported protocol_version')
+        for field in ('station_id', 'session_id', 'pilot_id', 'lap_id', 'track_config'):
+            identifier(data.get(field))
+        if data['station_id'] != station or data.get('event', 'endurance') != 'endurance':
+            raise Problem(400, 'V2 requires the authenticated endurance station')
+        raw_ms = data.get('raw_ms')
+        if type(raw_ms) is not int or not 0 < raw_ms <= 3600000:
+            raise Problem(400, 'invalid raw_ms')
+        trace = data.get('trace')
+        if not isinstance(trace, dict):
+            raise Problem(400, 'trajectory trace required')
+        lap = trace.get('lap')
+        expected = {key: data[key] for key in ('station_id', 'session_id', 'lap_id')}
+        if not isinstance(lap, dict) or any(lap.get(key) != value for key, value in expected.items()) or lap.get('raw_ms') != raw_ms:
+            raise Problem(400, 'trajectory identity does not match submission')
+        if len(compact(data).encode('utf-8')) > 8_000_000:
+            raise Problem(413, 'V2 submission too large')
+        try:
+            identifier(data.get('track_config'))
+        except Problem:
+            raise Problem(400, 'invalid track_config') from None
+        with self.connect() as db:
+            calibration = db.execute('SELECT * FROM penalties_v2_configs WHERE station_id=? AND track_config=? AND active=1',
+                                     (station, data['track_config'])).fetchone()
+            assignment = db.execute('SELECT session_id,pilot_id,revision FROM assignments WHERE station_id=?', (station,)).fetchone()
+        if not calibration:
+            raise Problem(409, 'no active V2 geometry calibration')
+        if not assignment or (assignment['session_id'], assignment['pilot_id']) != (data['session_id'], data['pilot_id']):
+            raise Problem(409, 'station assignment mismatch')
+        try:
+            config = json.loads(calibration['config_json'])
+            settings = json.loads(calibration['settings_json'])
+            result = penalties_v2.analyze_trajectory(trace, config, settings)
+        except (penalties_v2.TrajectoryError, ValueError) as error:
+            raise Problem(400, str(error)) from None
+        status = 'VALID' if self.scoring_armed and not result['review_required'] else 'PENDING_REVIEW'
+        corrected = result['final_ms'] if status == 'VALID' else None
+        events = {'cone': result['penalty_counts']['touched_cones'],
+                  'off_course': result['penalty_counts']['off_course_events'], 'slalom': []}
+        payload, events_json = compact(data), compact(events)
+        digest = hashlib.sha256(compact(result).encode('utf-8')).hexdigest()
+        created = now_utc()
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            existing = db.execute('SELECT payload,corrected_ms,status FROM laps WHERE station_id=? AND lap_id=?',
+                                  (station, data['lap_id'])).fetchone()
+            if existing:
+                if existing['payload'] != payload:
+                    raise Problem(409, 'lap_id already used with different payload')
+                return {'lap_id': data['lap_id'], 'corrected_ms': existing['corrected_ms'],
+                        'status': existing['status'], 'duplicate': True}
+            current = db.execute('SELECT session_id,pilot_id,revision FROM assignments WHERE station_id=?', (station,)).fetchone()
+            if not current or (current['session_id'], current['pilot_id']) != (data['session_id'], data['pilot_id']):
+                raise Problem(409, 'station assignment changed during submission')
+            if not self.scoring_armed:
+                status = 'PENDING_REVIEW'
+            db.execute('INSERT INTO laps (station_id,lap_id,session_id,pilot_id,event,raw_ms,corrected_ms,events,status,payload,created_utc,calibration_reference,lap_number) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                       (station, data['lap_id'], data['session_id'], data['pilot_id'], 'endurance', raw_ms,
+                        corrected, events_json, status, payload, created, calibration['reference'], data.get('lap_number')))
+            db.execute('INSERT INTO penalties_v2_replays (station_id,lap_id,trace_json,config_json,settings_json,result_json,result_sha256,created_utc) VALUES (?,?,?,?,?,?,?,?)',
+                       (station, data['lap_id'], compact(trace), calibration['config_json'], calibration['settings_json'],
+                        compact(result), digest, created))
+        return {'lap_id': data['lap_id'], 'corrected_ms': corrected, 'status': status, 'duplicate': False,
+                'penalty_ms': result['penalty_ms'], 'analysis': result}
+
+    def replay_penalties_v2(self, station, lap_id):
+        station, lap_id = identifier(station), identifier(lap_id)
+        with self.connect() as db:
+            row = db.execute('SELECT * FROM penalties_v2_replays WHERE station_id=? AND lap_id=?', (station, lap_id)).fetchone()
+        if not row:
+            raise Problem(404, 'V2 replay not found')
+        trace, config, settings = json.loads(row['trace_json']), json.loads(row['config_json']), json.loads(row['settings_json'])
+        result = penalties_v2.analyze_trajectory(trace, config, settings)
+        digest = hashlib.sha256(compact(result).encode('utf-8')).hexdigest()
+        return {'station_id': station, 'lap_id': lap_id, 'trace': trace, 'config': config, 'settings': settings,
+                'result': result, 'replay_matches': digest == row['result_sha256'],
+                'stored_sha256': row['result_sha256'], 'replayed_sha256': digest}
+
     # ---- laps -------------------------------------------------------------------------
     def submit(self, data, station):
         if type(data.get('protocol_version')) is not int or data['protocol_version'] != 1:
@@ -587,6 +743,8 @@ def migrate(path):
                 db.execute(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}')
         db.executescript('''
             CREATE TABLE IF NOT EXISTS sync_errors (id INTEGER PRIMARY KEY AUTOINCREMENT, station_id TEXT NOT NULL, path TEXT NOT NULL, http_status INTEGER NOT NULL, cause TEXT NOT NULL, lap_id TEXT, created_utc TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS penalties_v2_configs (station_id TEXT NOT NULL, track_config TEXT NOT NULL, config_json TEXT NOT NULL, settings_json TEXT NOT NULL, reference TEXT NOT NULL, active INTEGER NOT NULL, updated_utc TEXT NOT NULL, PRIMARY KEY(station_id, track_config));
+            CREATE TABLE IF NOT EXISTS penalties_v2_replays (station_id TEXT NOT NULL, lap_id TEXT NOT NULL, trace_json TEXT NOT NULL, config_json TEXT NOT NULL, settings_json TEXT NOT NULL, result_json TEXT NOT NULL, result_sha256 TEXT NOT NULL, created_utc TEXT NOT NULL, PRIMARY KEY(station_id, lap_id), FOREIGN KEY(station_id, lap_id) REFERENCES laps(station_id, lap_id) ON DELETE CASCADE);
             CREATE INDEX IF NOT EXISTS laps_session ON laps(session_id, created_utc);
             CREATE INDEX IF NOT EXISTS sync_errors_station ON sync_errors(station_id, id);
         ''')
@@ -735,6 +893,14 @@ def make_handler(store, admin_token, station_tokens):
                 session = self.arg(args, 'session_id')
                 if path == '/api/admin/reviews':
                     return self.send(200, store.reviews(identifier(args.get('session_id', [''])[0])))
+                if path == '/api/admin/v2/replay':
+                    station = identifier(args.get('station_id', [''])[0])
+                    lap_id = identifier(args.get('lap_id', [''])[0])
+                    return self.send(200, store.replay_penalties_v2(station, lap_id))
+                if path == '/api/admin/v2/reviews':
+                    station = identifier(args.get('station_id', [''])[0])
+                    lap_id = identifier(args.get('lap_id', [''])[0])
+                    return self.send(200, store.reviews_v2(station, lap_id))
                 if path == '/api/admin/reviews.csv':
                     rows = store.reviews(identifier(args.get('session_id', [''])[0]))['reviews']
                     return self.send(200, csv_text(rows, REVIEW_COLUMNS), 'text/csv; charset=utf-8', 'rice-reviews.csv')
@@ -769,7 +935,7 @@ def make_handler(store, admin_token, station_tokens):
                 length = int(self.headers.get('Content-Length', '0'))
             except ValueError:
                 raise Problem(400, 'invalid body length') from None
-            if not 0 < length <= 65536:
+            if not 0 < length <= (8_000_000 if path in ('/api/v2/laps', '/api/admin/v2/config') else 65536):
                 raise Problem(400, 'invalid body length')
             try:
                 data = json.loads(self.rfile.read(length))
@@ -777,10 +943,14 @@ def make_handler(store, admin_token, station_tokens):
                 raise Problem(400, 'invalid JSON') from None
             if not isinstance(data, dict):
                 raise Problem(400, 'JSON object required')
-            if path in ('/api/laps', '/api/station/heartbeat'):
+            if path in ('/api/laps', '/api/v2/laps', '/api/station/heartbeat'):
                 claimed, lap = data.get('station_id'), data.get('lap_id')
                 self.claimed = (claimed if isinstance(claimed, str) and claimed in station_tokens else None,
                                 lap if isinstance(lap, str) and ID.fullmatch(lap) else None)
+            if path == '/api/v2/laps':
+                station = identifier(data.get('station_id'))
+                self.authenticated(station_tokens.get(station))
+                return self.send(200, store.submit_v2(data, station))
             if path == '/api/laps':
                 station = identifier(data.get('station_id'))
                 self.authenticated(station_tokens.get(station))
@@ -793,6 +963,12 @@ def make_handler(store, admin_token, station_tokens):
                 return self.send(200, store.heartbeat(station))
             if path.startswith('/api/admin/'):
                 self.authenticated(admin_token)
+                if path == '/api/admin/v2/config':
+                    if data.get('station_id') not in station_tokens:
+                        raise Problem(400, 'unknown station')
+                    return self.send(200, store.configure_penalties_v2(data))
+                if path == '/api/admin/v2/penalties':
+                    return self.send(200, store.review_penalties_v2(data))
                 if path == '/api/admin/sessions':
                     return self.send(200, store.create_session(data))
                 if path == '/api/admin/sessions/active':
@@ -830,7 +1006,7 @@ def make_handler(store, admin_token, station_tokens):
                 self.dispatch()
             except Problem as error:
                 path = urlsplit(self.path).path
-                if 400 <= error.code < 500 and path in ('/api/laps', '/api/station/heartbeat', '/api/station/assignment'):
+                if 400 <= error.code < 500 and path in ('/api/laps', '/api/v2/laps', '/api/station/heartbeat', '/api/station/assignment'):
                     try:
                         store.record_sync_error(self.claimed[0] or 'unknown', path, error.code, error.message, self.claimed[1])
                     except sqlite3.Error:
@@ -846,6 +1022,8 @@ def main(argv=None):
     parser.add_argument('--db', default='trials.sqlite')
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8080)
+    parser.add_argument('--enable-penalties-v2', action='store_true',
+                        help='opt in to authenticated /api/v2/laps ingestion; V1 remains unchanged')
     parser.add_argument('--restore', metavar='BACKUP', help='offline: validate BACKUP, copy current DB aside, restore into --db and exit')
     parser.add_argument('--check', action='store_true', help='offline: run integrity_check on --db and exit')
     args = parser.parse_args(argv)
@@ -861,7 +1039,8 @@ def main(argv=None):
     stations = json.loads(os.environ.get('RICE_STATION_TOKENS', '{}'))
     if not admin or not isinstance(stations, dict) or not stations or not all(isinstance(k, str) and isinstance(v, str) and v and v != admin for k, v in stations.items()):
         parser.error('set RICE_ADMIN_TOKEN and nonempty RICE_STATION_TOKENS JSON with distinct station secrets')
-    with ThreadingHTTPServer((args.host, args.port), make_handler(Store(args.db), admin, stations)) as server:
+    with ThreadingHTTPServer((args.host, args.port), make_handler(
+            Store(args.db, penalties_v2_enabled=args.enable_penalties_v2), admin, stations)) as server:
         print(f'Listening on {args.host}:{args.port}', flush=True)
         server.serve_forever()
     return 0
