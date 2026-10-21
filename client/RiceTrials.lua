@@ -17,6 +17,11 @@ local coneMachine, conePrev, coneIds = nil, nil, nil
 local limitsMachine, slalomMachine, autoPenalties, maxAutoCones, maxWheelsOut = nil, nil, false, 25, 0
 local coneExcluded, autoCones = {}, 0
 local penaltyStore, offTimes, gateTimes = nil, {}, {}
+local deltaMod, deltaD, liveDelta = nil, nil, nil   -- delta bar vs best final lap (see delta.lua)
+do
+  local okD, m = pcall(require, 'delta')
+  if okD and type(m) == 'table' then deltaMod = m; deltaD = m.new() end
+end
 local lastLap, bestLap = nil, nil   -- local results of this app run: {raw_ms, penalty_ms, corrected_ms, applied}
 local function coneReset()
   conePrev, coneIds, maxWheelsOut, autoCones = nil, {}, 0, 0
@@ -363,6 +368,8 @@ end
 local function resetRoute(reason)
   if calibration then route = core.route_machine(calibration.route) end
   previous, started, frozen = nil, nil, nil
+  liveDelta = nil
+  if deltaD then pcall(deltaD.abort, deltaD) end
   coneReset()
   status = 'OUTLAP_RESET / '..(reason or 'TELEPORT_OR_GAP')..' / NOT SCORED'
   if diag then pcall(diag.event, diag, 'route_reset', {reason=reason or 'TELEPORT_OR_GAP'}) end
@@ -477,6 +484,13 @@ function script.update(dt)
     end
     conePrev = pose
   end
+  if deltaD and wasTimed and started then
+    local step = previous and math.sqrt((current.x-previous.x)^2 + (current.z-previous.z)^2) or 0
+    local o = penaltyOutcome()
+    local value = (elapsed - started) * 1000 + (o and o.penalty_ms or 0)
+    local okF, dl = pcall(deltaD.feed, deltaD, field(car, 'splinePosition'), step, value)
+    liveDelta = okF and dl or nil
+  end
   -- Start-line crossing time interpolated inside this frame (position is linear between
   -- the previous and current samples); falls back to the frame end.
   if type(fraction) ~= 'number' or fraction < 0 or fraction > 1 then fraction = 1 end
@@ -489,6 +503,7 @@ function script.update(dt)
     frozen = {station_id=station, session_id=assignment.session_id, pilot_id=assignment.pilot_id,
       assignment_revision=assignment.assignment_revision}
     started = crossedAt; coneReset(); status = 'OUTLAP COMPLETE / ASSIGNMENT FROZEN'
+    if deltaD then pcall(deltaD.begin, deltaD, field(car, 'splinePosition')) end
   elseif transition == 'CHECKPOINT' then status = 'ROUTE CHECKPOINT / NOT SCORED'
   elseif transition == 'COMPLETE' and started and frozen and crossedAt > started then
     local raw = math.floor((crossedAt-started)*1000+0.5)
@@ -531,11 +546,13 @@ function script.update(dt)
       lastLap = {raw_ms=raw, penalty_ms=pen, corrected_ms=raw + pen, applied=outcome and outcome.applied or nil,
                  scored=outcome ~= nil}
       if not bestLap or lastLap.corrected_ms < bestLap.corrected_ms then bestLap = lastLap end
+      if deltaD then pcall(deltaD.finish, deltaD, lastLap.corrected_ms) end
     end
     if nativeLaps then pcall(nativeLaps.note_route_lap, nativeLaps, id, raw) end
     status = 'PENDING_REVIEW / LOCALLY STORED / NOT SCORED'
     sendPending()
     started = crossedAt
+    if deltaD then pcall(deltaD.begin, deltaD, field(car, 'splinePosition')) end
     -- Each subsequent lap must be bound to current authenticated assignment.
     frozen = assignment and {station_id=station, session_id=assignment.session_id,
       pilot_id=assignment.pilot_id, assignment_revision=assignment.assignment_revision} or nil
@@ -627,14 +644,46 @@ local function timesRows()
   rows[#rows + 1] = {'MEJOR   '..(bestLap and f(bestLap.corrected_ms) or '--'), 'ok'}
   return rows
 end
+local function deltaRow()
+  if not deltaMod then return nil end
+  if not (deltaD and deltaD:has_reference()) then return {'DELTA   -- (falta vuelta de referencia)', 'info'} end
+  if liveDelta == nil then return {'DELTA   --', 'info'} end
+  return {'DELTA   '..deltaMod.format(liveDelta)..' s', liveDelta <= 0 and 'ok' or 'error'}
+end
+-- AC-style meter under the text: centre line, green grows left when faster, red right when slower.
+local function drawDeltaBar(nRows)
+  local vec2, rgbm = rawget(_G, 'vec2'), rawget(_G, 'rgbm')
+  if not (deltaMod and vec2 and rgbm and type(ui.drawRectFilled) == 'function') then return end
+  local lay = hud.layout(hudConfig)
+  local size = 15 * lay.scale
+  local lineH = math.floor(size * 1.35 + 0.5)
+  local pad = math.floor(6 * lay.scale + 0.5)
+  local width = 300 * lay.scale
+  if type(ui.windowSize) == 'function' then
+    local okW, w = pcall(ui.windowSize)
+    if okW and w and type(w.x) == 'number' and w.x > lay.x + 40 then width = w.x - lay.x - 2 * pad end
+  end
+  local x0, y0 = lay.x + pad, lay.y + 2 * pad + (nRows + 1) * lineH + 4
+  local h, mid = 14 * lay.scale, x0 + width / 2
+  ui.drawRectFilled(vec2(x0, y0), vec2(x0 + width, y0 + h), rgbm(0, 0, 0, 0.8), 3)
+  local b = deltaMod.bar(liveDelta, 2000)
+  if liveDelta ~= nil and b.frac ~= 0 then
+    local col = b.level == 'ok' and rgbm(0.2, 0.85, 0.3, 1) or rgbm(0.9, 0.2, 0.2, 1)
+    local xe = mid + b.frac * (width / 2)
+    ui.drawRectFilled(vec2(math.min(mid, xe), y0 + 1), vec2(math.max(mid, xe), y0 + h - 1), col, 2)
+  end
+  ui.drawRectFilled(vec2(mid - 1, y0 - 2), vec2(mid + 1, y0 + h + 2), rgbm(1, 1, 1, 1), 0)
+end
 function script.windowTimes(dt)
   if not hud then ui.text('Tiempos no disponibles'); return end
   local okRows, rows = pcall(timesRows)
   if not okRows then ui.text('Tiempos no disponibles'); return end
+  local dr = deltaRow()
+  if dr then rows[#rows + 1] = dr end
   local model = {title='Rice Trials', lines={}}
   for _, r in ipairs(rows) do model.lines[#model.lines + 1] = {text=r[1], level=r[2]} end
   local drew, drawn = pcall(hud.draw, model, hudConfig)
-  if drew and drawn then return end
+  if drew and drawn then pcall(drawDeltaBar, #rows); return end
   for _, r in ipairs(rows) do ui.text(r[1]) end
 end
 function script.windowPenalties(dt)

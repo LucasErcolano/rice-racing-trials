@@ -282,6 +282,23 @@ class AutoPenalties(unittest.TestCase):
         self.assertIn('+ %.1f s' % (payload['penalty']['penalty_ms'] / 1000), joined)
         self.assertRegex(joined, r'MEJOR   \d+:\d\d\.\d{3}')
 
+    def test_delta_row_needs_a_reference_then_shows_a_value(self):
+        lua, storage, position, requests, reply, to_lua = harness()
+        lua.execute("local p = ac.getCar; ac.getCar = function(n) local c = p(n); c.look = {x=0, y=0, z=-1}; return c end")
+        texts = []
+        wrap = lua.eval('function(f) return function(...) return f(...) end end')
+        lua.globals().ui = lua.table_from({'text': wrap(lambda t: texts.append(t))})
+        script = lua.globals().script
+        script.connect('http://127.0.0.1:8080', 'station-1', 'secret')
+        script.configure(config(to_lua))
+        script.configureCones(self.cfg(to_lua))
+        reply(0, {'station_id': 'station-1', 'session_id': 's1', 'pilot_id': 'p1'})
+        script.windowTimes(.1)
+        self.assertTrue(any(t.startswith('DELTA   -- (falta') for t in texts), texts)
+        drive_lap(lua, position)
+        texts.clear(); script.windowTimes(.1)
+        self.assertTrue(any(t.startswith('DELTA') for t in texts), texts)
+
     def test_without_auto_flag_events_stay_empty(self):
         payload = self.lap(auto_penalties=False)
         self.assertEqual(payload['events'], {})

@@ -90,7 +90,7 @@ class BuildTests(unittest.TestCase):
             for directory in ('client', 'server', 'leaderboard', 'tests', 'packaging', 'tools', 'docs', 'assets/source'):
                 (root / directory).mkdir(parents=True)
             for filename, contents in {
-                'client/RiceTrials.lua': 'app', 'client/core.lua': 'core', 'client/scoring.lua': 'scoring', 'client/detectors.lua': 'detectors', 'client/journal.lua': 'journal', 'client/hud.lua': 'hud', 'client/penalties.lua': 'penalties', 'client/native_laps.lua': 'native_laps', 'client/diagnostics.lua': 'diagnostics', 'server/scoring.py': 'scoring', 'rules/scoring-v1.json': '{}', 'client/extra.lua': 'extra',
+                'client/RiceTrials.lua': 'app', 'client/core.lua': 'core', 'client/scoring.lua': 'scoring', 'client/detectors.lua': 'detectors', 'client/journal.lua': 'journal', 'client/hud.lua': 'hud', 'client/delta.lua': 'delta', 'client/penalties.lua': 'penalties', 'client/native_laps.lua': 'native_laps', 'client/diagnostics.lua': 'diagnostics', 'server/scoring.py': 'scoring', 'rules/scoring-v1.json': '{}', 'client/extra.lua': 'extra',
                 'client/manifest.ini': 'ini', 'client/station_config.lua': 'LOCAL_SECRET_DO_NOT_SHIP', 'server/app.py': 'app', 'server/service.py': 'module',
                 'leaderboard/tv.html': 'tv', 'leaderboard/tv.js': 'js', 'leaderboard/admin.html': 'admin', 'leaderboard/admin.js': 'js',
                 'packaging/install.ps1': 'install', 'packaging/uninstall.ps1': 'uninstall',
