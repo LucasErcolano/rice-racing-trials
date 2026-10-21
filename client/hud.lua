@@ -179,6 +179,15 @@ function M.model(state, config)
     end
   end
 
+  -- This station's own result: raw + configured penalties (not an official time).
+  local ll = type(state.last_local) == 'table' and state.last_local or nil
+  if ll and int(ll.raw_ms) and int(ll.corrected_ms) then
+    add('Ultima final: '..M.format_ms(ll.corrected_ms)..' ('..M.format_ms(ll.raw_ms)..' + '..
+      string.format('%.1f', (ll.penalty_ms or 0) / 1000)..' s)', (ll.penalty_ms or 0) > 0 and 'warn' or 'ok')
+  end
+  local bl = type(state.best_local) == 'table' and state.best_local or nil
+  if bl and int(bl.corrected_ms) then add('Mejor final: '..M.format_ms(bl.corrected_ms), 'ok') end
+
   -- Best corrected lap: only a VALID result from the server counts.
   local best = type(state.best) == 'table' and state.best or nil
   if best and best.status == 'VALID' and int(best.corrected_ms) and best.corrected_ms > 0 then

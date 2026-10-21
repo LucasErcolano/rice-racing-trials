@@ -17,6 +17,7 @@ local coneMachine, conePrev, coneIds = nil, nil, nil
 local limitsMachine, slalomMachine, autoPenalties, maxAutoCones, maxWheelsOut = nil, nil, false, 25, 0
 local coneExcluded, autoCones = {}, 0
 local penaltyStore, offTimes, gateTimes = nil, {}, {}
+local lastLap, bestLap = nil, nil   -- local results of this app run: {raw_ms, penalty_ms, corrected_ms, applied}
 local function coneReset()
   conePrev, coneIds, maxWheelsOut, autoCones = nil, {}, 0, 0
   offTimes, gateTimes = {}, {}
@@ -525,6 +526,12 @@ function script.update(dt)
     if not persist() then return end
     crossings = crossings + 1
     lastResult = {raw_seconds=raw/1000}
+    do -- what the driver sees: raw + station penalties = final time (not an official result)
+      local pen = outcome and outcome.penalty_ms or 0
+      lastLap = {raw_ms=raw, penalty_ms=pen, corrected_ms=raw + pen, applied=outcome and outcome.applied or nil,
+                 scored=outcome ~= nil}
+      if not bestLap or lastLap.corrected_ms < bestLap.corrected_ms then bestLap = lastLap end
+    end
     if nativeLaps then pcall(nativeLaps.note_route_lap, nativeLaps, id, raw) end
     status = 'PENDING_REVIEW / LOCALLY STORED / NOT SCORED'
     sendPending()
@@ -585,7 +592,7 @@ local function hudState()
     phase=calibration and route and route.phase or nil,
     -- Penalties carry no evidence until a detector is commissioned: shown as "sin evidencia".
     lap=timed and liveLap() or nil,
-    last_official=nil, best=nil,
+    last_official=nil, best=nil, last_local=lastLap, best_local=bestLap,
     sync={online=online, pending=#queue.entries, persistence=persistenceForHud(),
       last_ack=lastAck and {lap_id=lastAck.lap_id, age_s=math.floor(os.clock()-lastAck.at)} or nil},
     status=status,
@@ -602,6 +609,34 @@ function script.windowMain(dt)
   plainWindow()
 end
 function script.penaltyStore() return penaltyStore end
+-- Compact driver window: last / best final time (raw + penalties) and the live projection.
+local function timesRows()
+  local f = hud.format_ms
+  local rows = {}
+  local live = started and route and route.phase == 'timed' and liveLap() or nil
+  if live and live.projected_ms then
+    rows[#rows + 1] = {'AHORA  '..f(live.projected_ms), live.projected_ms > live.elapsed_ms and 'warn' or 'ok'}
+    rows[#rows + 1] = {string.format('        penal. +%.1f s', (live.projected_ms - live.elapsed_ms) / 1000), 'info'}
+  elseif live then
+    rows[#rows + 1] = {'AHORA  '..f(live.elapsed_ms), 'info'}
+  end
+  if lastLap then
+    rows[#rows + 1] = {'ULTIMA  '..f(lastLap.corrected_ms), lastLap.penalty_ms > 0 and 'warn' or 'ok'}
+    rows[#rows + 1] = {string.format('        %s + %.1f s', f(lastLap.raw_ms), lastLap.penalty_ms / 1000), 'info'}
+  else rows[#rows + 1] = {'ULTIMA  --', 'info'} end
+  rows[#rows + 1] = {'MEJOR   '..(bestLap and f(bestLap.corrected_ms) or '--'), 'ok'}
+  return rows
+end
+function script.windowTimes(dt)
+  if not hud then ui.text('Tiempos no disponibles'); return end
+  local okRows, rows = pcall(timesRows)
+  if not okRows then ui.text('Tiempos no disponibles'); return end
+  local model = {title='Rice Trials', lines={}}
+  for _, r in ipairs(rows) do model.lines[#model.lines + 1] = {text=r[1], level=r[2]} end
+  local drew, drawn = pcall(hud.draw, model, hudConfig)
+  if drew and drawn then return end
+  for _, r in ipairs(rows) do ui.text(r[1]) end
+end
 function script.windowPenalties(dt)
   if penaltyMod and penaltyStore then
     local ok = pcall(penaltyMod.draw, penaltyStore, ui, ac, dt)
