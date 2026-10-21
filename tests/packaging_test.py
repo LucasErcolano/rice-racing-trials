@@ -107,10 +107,13 @@ class BuildTests(unittest.TestCase):
                 path.write_text(contents)
             (root / 'track/calibration').mkdir(parents=True)
             (root / 'track/calibration/timing-landmarks.json').write_text('{}')
+            (root / 'track/calibration/route').mkdir()
+            (root / 'track/calibration/route/T.route_config.lua').write_text('verified = true,')
             build.ROOT = root
             output = Path(tmp) / 'out'
             build.build(output, 'test')
             with ZipFile(output / 'RiceRacing_Trials_Client.zip') as archive:
+                self.assertIn('track-config/T.route_config.lua', archive.namelist())
                 self.assertIn('RiceTrials/extra.lua', archive.namelist())
                 self.assertNotIn('RiceTrials/station_config.lua', archive.namelist())
                 self.assertIn('tools/validation.py', archive.namelist())

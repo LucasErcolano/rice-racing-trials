@@ -51,6 +51,9 @@ def build(output: Path, version: str, derived=None):
                           (ROOT / 'tools/validation.py', 'tools/validation.py'),
                           (ROOT / 'track/calibration/timing-landmarks.json', 'track/calibration/timing-landmarks.json'),
                           (ROOT / 'rules/scoring-v1.json', 'rules/scoring-v1.json')]
+    # Track configs (route + cones) for the published FSAEJ_Endurance mod; installed with install.ps1 -RouteConfig/-ConeConfig.
+    entries['client'] += [(q, f'track-config/{q.name}') for q in sorted((ROOT / 'track/calibration/route').glob('*'))
+                          if q.is_file() and q.suffix in ('.lua', '.json', '.md')]
     entries['server'] += [(ROOT / 'docs/operator-guide.md', 'RiceTrialsServer/OPERATOR_GUIDE.md')] + [
         (ROOT / 'packaging' / name, name) for name in ('start-server.ps1', 'configure-secrets.ps1', 'server-admin.ps1')]
     entries['complete'] = entries['client'] + entries['server'] + documentation + [
