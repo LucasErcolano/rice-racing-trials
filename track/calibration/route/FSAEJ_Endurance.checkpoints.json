@@ -1,0 +1,18 @@
+{
+ "version": "route-checkpoints-v1",
+ "track": "FSAEJ_Endurance",
+ "checkpoints": [
+  {
+   "a": {
+    "x": 35.7409,
+    "z": -0.5713
+   },
+   "b": {
+    "x": 35.7591,
+    "z": -12.5713
+   },
+   "direction": -1,
+   "label": "AC_TIME_1@730m (ancha 12 m)"
+  }
+ ]
+}

@@ -1,0 +1,31 @@
+{
+ "verified": true,
+ "start": {
+  "a": {
+   "x": -108.5807,
+   "z": 42.4376
+  },
+  "b": {
+   "x": -115.7726,
+   "z": 42.4376
+  },
+  "direction": -1,
+  "label": "start"
+ },
+ "checkpoints": [
+  {
+   "a": {
+    "x": 35.7409,
+    "z": -0.5713
+   },
+   "b": {
+    "x": 35.7591,
+    "z": -12.5713
+   },
+   "direction": -1,
+   "label": "AC_TIME_1@730m (ancha 12 m)"
+  }
+ ],
+ "approved_by": "VM-validation-automated (Hermes)",
+ "generated_utc": "2026-10-21T21:39:31Z"
+}
