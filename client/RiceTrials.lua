@@ -6,6 +6,8 @@ local status = 'CALIBRATION_REQUIRED / UNVERIFIED CSP and Windows runtime'
 local storageKey = 'rice_trials_pending_review_v1'
 local queue, nonce, nextId = core.pending_queue(), nil, 1
 local blocked, endpoint, station, token, assignment, frozen = false, nil, nil, nil, nil, nil
+local assignmentAt, gameClock = nil, 0
+local ASSIGNMENT_STALE_S = 600
 local sending, fetching, heartbeat, retryClock, heartbeatClock = false, false, false, 0, 0
 local bootAttempted = false
 local lapNumbers, lastResetCounter = {}, nil
@@ -208,7 +210,9 @@ end
 local function persist()
   if not journal or not JSON or not JSON.stringify then
     return fail('STORAGE_UNAVAILABLE / REVIEW_NOT_DURABLE') end
-  local ok = journal:save({{version=1, nonce=nonce, next_id=nextId, entries=queue.entries, lap_numbers=lapNumbers}})
+  local remaining = assignment and assignmentAt and math.max(0, ASSIGNMENT_STALE_S - (gameClock - assignmentAt)) or nil
+  local ok = journal:save({{version=1, nonce=nonce, next_id=nextId, entries=queue.entries,
+    lap_numbers=lapNumbers, assignment_cache=assignment, assignment_remaining_s=remaining}})
   persistence = journal:state().state
   if not ok then return fail('STORAGE_UNVERIFIED / REVIEW_NOT_DURABLE') end
   return true
@@ -237,6 +241,14 @@ local function adopt(data)
     end
   end
   queue, nonce, nextId, lapNumbers = loaded, data.nonce, data.next_id, numbers
+  if type(data.assignment_cache)=='table' and core.valid_id(data.assignment_cache.station_id) and
+      core.valid_id(data.assignment_cache.session_id) and core.valid_id(data.assignment_cache.pilot_id) and
+      type(data.assignment_cache.assignment_revision)=='number' and
+      type(data.assignment_remaining_s)=='number' and data.assignment_remaining_s>0 and
+      data.assignment_remaining_s<=ASSIGNMENT_STALE_S then
+    assignment=data.assignment_cache
+    assignmentAt=gameClock-(ASSIGNMENT_STALE_S-data.assignment_remaining_s)
+  end
   return true
 end
 local function restore()
@@ -284,8 +296,6 @@ do
 end
 -- Last authenticated assignment survives a network outage for at most this long, measured
 -- on the game clock (sum of update dt), not os.clock (CPU time in plain Lua).
-local ASSIGNMENT_STALE_S = 600
-local assignmentAt, gameClock = nil, 0
 local function headers()
   return {Authorization='Bearer '..token, ['Content-Type']='application/json'}
 end
@@ -306,7 +316,8 @@ initField = function(settings)
       if got and type(actual)=='string' and actual~='' then track=actual end
     end
     return {station_id=station,session_id=assignment and assignment.session_id,
-      pilot_id=assignment and assignment.pilot_id,track_config=track}
+      pilot_id=assignment and assignment.pilot_id,assignment_revision=assignment and assignment.assignment_revision,
+      track_config=track}
   end
   local created, producer=pcall(mod.new, {nonce=nonce,context=context,
     encode=function(v) return JSON.stringify(v) end,decode=function(v) return JSON.parse(v) end,
@@ -318,6 +329,14 @@ initField = function(settings)
       local sent=pcall(web.post,endpoint..'/api/v2/'..(channel=='native' and 'native-laps' or 'penalty-laps'),
         headers(),payload,function(err,response) cb(decoded(err,response)) end)
       if not sent then cb(nil) end
+    end,
+    native_evidence=function(record)
+      if not nativeLaps or type(nativeLaps.drafts)~='table' then return nil end
+      for _,draft in ipairs(nativeLaps.drafts) do
+        if draft.station_id==station and draft.lap_count==record.lap_count and draft.time_ms==record.raw_ms and
+            draft.id:sub(1,#nonce)==nonce then return draft.valid end
+      end
+      return nil
     end})
   if created then fieldV2=producer else status='V2_STORAGE_UNAVAILABLE / LOCAL BACKUP ONLY' end
 end
@@ -361,16 +380,19 @@ function script.refreshAssignment()
       httpStatus >= 500)
     if transient and assignment and assignmentAt and gameClock - assignmentAt <= ASSIGNMENT_STALE_S then
       online = false
-      status = 'ASSIGNMENT_STALE / OFFLINE / PENDING_REVIEW ONLY'; return
+      status = 'ASSIGNMENT_STALE / OFFLINE / PENDING_REVIEW ONLY'
+      persist(); return
     end
     if not body or body.station_id ~= station or type(body.session_id) ~= 'string' or
         type(body.pilot_id) ~= 'string' or not core.valid_id(body.session_id) or
         not core.valid_id(body.pilot_id) then
       assignment, assignmentAt = nil, nil
-      status = 'ASSIGNMENT_UNAVAILABLE / NOT SCORED'; return
+      status = 'ASSIGNMENT_UNAVAILABLE / NOT SCORED'
+      persist(); return
     end
     assignment, assignmentAt = body, gameClock
     status = 'ASSIGNMENT_AUTHENTICATED / PENDING_REVIEW ONLY'
+    persist()
     sendPending()
   end)
   if not ok then fetching = false; assignment, assignmentAt = nil, nil; return false end
@@ -398,6 +420,8 @@ function script.connect(url, stationId, secret)
     end
   end
   endpoint, station, token = url, stationId, secret
+  if assignment and assignment.station_id ~= stationId then assignment, assignmentAt = nil, nil end
+  if assignment and assignmentAt and gameClock-assignmentAt > ASSIGNMENT_STALE_S then assignment, assignmentAt=nil,nil end
   if not nonce then
     nonce = tostring(os.time())..'-'..tostring(math.random(100000000, 999999999))
     if not persist() then return false end

@@ -67,6 +67,13 @@ def validate(data, station, channel):
         raise FieldError(400, 'unsupported rules_version')
     if 'native_valid' in data and type(data['native_valid']) is not bool:
         raise FieldError(400, 'native_valid must be boolean when supplied')
+    if data.get('assignment_state') == 'UNASSIGNED':
+        if channel != 'native' or data.get('session_id') != 'UNASSIGNED' or data.get('pilot_id') != 'UNASSIGNED':
+            raise FieldError(400, 'invalid unassigned native identity')
+        if data.get('review_reason') != 'no_authenticated_assignment':
+            raise FieldError(400, 'unassigned review reason required')
+    elif data.get('session_id') == 'UNASSIGNED' or data.get('pilot_id') == 'UNASSIGNED':
+        raise FieldError(400, 'unassigned identity marker required')
     try:
         compact(data)
     except (TypeError, ValueError):
@@ -195,6 +202,14 @@ def receive(store, data, station, channel):
             validate(data, station, channel)
             key = (station, data['session_id'], data['lap_id'])
         row = db.execute('SELECT * FROM field_v2_laps WHERE station_id=? AND session_id=? AND lap_id=?', key).fetchone()
+        if row and not conflict:
+            other_name = 'penalty_payload' if channel == 'native' else 'native_payload'
+            if row[other_name]:
+                other = json.loads(row[other_name])
+                for field_name in ('pilot_id','track_config','assignment_revision'):
+                    if other.get(field_name) != data.get(field_name):
+                        conflict = 'assignment_revision_conflict' if field_name == 'assignment_revision' else 'lap_identity_conflict'
+                        break
         # A penalty-only raw claim cannot replace the independent native clock.
         # Preserve the discrepant original evidence and withhold any preview.
         if (not conflict and row and channel == 'native' and not row['native_payload']
@@ -220,14 +235,31 @@ def receive(store, data, station, channel):
             db.execute('UPDATE field_v2_laps SET review_json=? WHERE station_id=? AND session_id=? AND lap_id=?',
                        (compact(conflicts),) + key)
         elif not row:
+            unassigned = data.get('assignment_state') == 'UNASSIGNED'
             assignment = db.execute('SELECT session_id,pilot_id FROM assignments WHERE station_id=?', (station,)).fetchone()
-            reviews = []
-            if not assignment or (assignment['session_id'], assignment['pilot_id']) != (data['session_id'], data['pilot_id']):
-                historical = db.execute('SELECT 1 FROM assignment_history WHERE station_id=? AND session_id=? AND pilot_id=?',
-                                        (station, data['session_id'], data['pilot_id'])).fetchone()
-                if not historical:
-                    raise FieldError(409, 'station assignment mismatch')
-                reviews.append({'reason': 'historical_assignment', 'kind': 'review'})
+            reviews = [{'reason': 'unassigned', 'kind': 'review'}] if unassigned else []
+            if not unassigned:
+                revision = data.get('assignment_revision')
+                if revision is not None and (type(revision) is not int or revision < 1):
+                    raise FieldError(400, 'invalid assignment_revision')
+                if revision is not None:
+                    historical = db.execute('SELECT session_id,pilot_id FROM assignment_history WHERE station_id=? AND revision=?',
+                                            (station, revision)).fetchone()
+                    if not historical or (historical['session_id'],historical['pilot_id']) != (data['session_id'],data['pilot_id']):
+                        raise FieldError(409, 'assignment revision mismatch')
+                    current_revision = assignment['revision'] if assignment and 'revision' in assignment.keys() else None
+                    if assignment and current_revision is None:
+                        latest = db.execute('SELECT revision,session_id,pilot_id FROM assignment_history WHERE station_id=? ORDER BY revision DESC LIMIT 1', (station,)).fetchone()
+                        if latest and (latest['session_id'],latest['pilot_id']) == (assignment['session_id'],assignment['pilot_id']):
+                            current_revision = latest['revision']
+                    if not assignment or current_revision != revision:
+                        reviews.append({'reason':'historical_assignment','kind':'review'})
+                elif not assignment or (assignment['session_id'], assignment['pilot_id']) != (data['session_id'], data['pilot_id']):
+                    historical = db.execute('SELECT 1 FROM assignment_history WHERE station_id=? AND session_id=? AND pilot_id=?',
+                                            (station, data['session_id'], data['pilot_id'])).fetchone()
+                    if not historical:
+                        raise FieldError(409, 'station assignment mismatch')
+                    reviews.append({'reason': 'historical_assignment', 'kind': 'review'})
             db.execute(f'INSERT INTO field_v2_laps (station_id,session_id,lap_id,pilot_id,track_config,raw_ms,{channel}_payload,review_json) VALUES (?,?,?,?,?,?,?,?)',
                        key + (data['pilot_id'], data['track_config'], data['raw_ms'], payload, compact(reviews)))
         elif not old:
@@ -239,6 +271,42 @@ def receive(store, data, station, channel):
         # Raise only after commit: the rejected evidence remains available to administrators.
         raise FieldError(409, conflict)
     return dict(render(row), duplicate=old is not None)
+
+
+def assign_unassigned(store, data):
+    """Manual attribution of an unassigned native-only lap; always remains provisional."""
+    for name in ('station_id', 'lap_id', 'session_id', 'pilot_id', 'reviewer'):
+        if not isinstance(data.get(name), str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,80}', data[name]):
+            raise FieldError(400, 'invalid ' + name)
+    reason = data.get('reason')
+    if not isinstance(reason, str) or not 10 <= len(reason.strip()) <= 1000:
+        raise FieldError(400, 'manual attribution reason required')
+    old = (data['station_id'], 'UNASSIGNED', data['lap_id'])
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT * FROM field_v2_laps WHERE station_id=? AND session_id=? AND lap_id=?', old).fetchone()
+        if not row or row['pilot_id'] != 'UNASSIGNED' or not row['native_payload'] or row['penalty_payload']:
+            raise FieldError(409, 'unassigned native-only lap not found')
+        if not db.execute('SELECT 1 FROM sessions WHERE session_id=?', (data['session_id'],)).fetchone():
+            raise FieldError(400, 'unknown session')
+        if not db.execute('SELECT 1 FROM pilots WHERE pilot_id=?', (data['pilot_id'],)).fetchone():
+            raise FieldError(400, 'unknown pilot')
+        target = (data['station_id'], data['session_id'], data['lap_id'])
+        if db.execute('SELECT 1 FROM field_v2_laps WHERE station_id=? AND session_id=? AND lap_id=?', target).fetchone():
+            raise FieldError(409, 'target lap identity already exists')
+        audit = {'kind':'manual_unassigned_attribution','reviewer':data['reviewer'],
+                 'reason':reason.strip(),'from_session_id':'UNASSIGNED','from_pilot_id':'UNASSIGNED',
+                 'to_session_id':data['session_id'],'to_pilot_id':data['pilot_id'],
+                 'created_utc':datetime.now(timezone.utc).isoformat(),'official':False}
+        reviews = json.loads(row['review_json'])
+        reviews.append({'reason':'manual_attribution_review_required','kind':'review'})
+        db.execute('UPDATE field_v2_laps SET session_id=?,pilot_id=?,review_json=? WHERE station_id=? AND session_id=? AND lap_id=?',
+                   (data['session_id'],data['pilot_id'],compact(reviews))+old)
+        db.execute('INSERT INTO field_v2_reviews(station_id,session_id,lap_id,payload) VALUES(?,?,?,?)',
+                   (data['station_id'],data['session_id'],data['lap_id'],compact(audit)))
+    with store.connect() as db:
+        result = db.execute('SELECT * FROM field_v2_laps WHERE station_id=? AND session_id=? AND lap_id=?', target).fetchone()
+    return render(result)
 
 
 def review(store, data):

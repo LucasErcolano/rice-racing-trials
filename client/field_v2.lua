@@ -4,11 +4,15 @@ local M = {}
 local function integer(n) return type(n)=='number' and n==n and n>=0 and n<2^53 and n%1==0 end
 local function field(t,k) local ok,v=pcall(function() return t[k] end); if ok then return v end end
 local function validContext(c)
-  if type(c)~='table' then return false end
-  for _,k in ipairs({'station_id','session_id','pilot_id','track_config'}) do
-    if type(c[k])~='string' or not c[k]:match('^[%w_.-]+$') or #c[k]>80 then return false end
+  if type(c)~='table' or type(c.station_id)~='string' or
+    not c.station_id:match('^[%w_.-]+$') or #c.station_id>80 then return false end
+  for _,k in ipairs({'session_id','pilot_id','track_config'}) do
+    if c[k]~=nil and (type(c[k])~='string' or not c[k]:match('^[%w_.-]+$') or #c[k]>80) then return false end
   end
   return true
+end
+local function attributed(c)
+  return validContext(c) and type(c.session_id)=='string' and type(c.pilot_id)=='string' and type(c.track_config)=='string'
 end
 function M.penalty_events(cone_ids, excluded, max_cones, off_times, violations, gate_times, cfg, auto)
   local events, charged = {}, 0
@@ -63,10 +67,20 @@ function M.new(opts)
   local function envelope(channel,id,ctx,raw)
     return {protocol='rice-lap-or-v2',message_id=id..'-'..channel,
       station_id=ctx.station_id,session_id=ctx.session_id,pilot_id=ctx.pilot_id,
-      track_config=ctx.track_config,lap_id=id,raw_ms=raw,rules_version=1,channel=channel}
+      track_config=ctx.track_config,assignment_revision=ctx.assignment_revision,
+      lap_id=id,raw_ms=raw,rules_version=1,channel=channel}
   end
   local function find(id)
     for _,r in ipairs(n.records) do if r.id==id then return r end end
+  end
+  local function enqueue(ch,body)
+    local id=body.message_id
+    for _,item in ipairs(data[ch].queue) do if item.id==id then return true end end
+    local item={id=id,payload=opts.encode(body)}
+    data[ch].queue[#data[ch].queue+1]=item
+    if save(ch) then return true end
+    table.remove(data[ch].queue)
+    return false
   end
   local function slot(target)
     for _,r in ipairs(n.records) do if r.epoch==n.epoch and r.lap_count==target then return r end end
@@ -83,16 +97,52 @@ function M.new(opts)
       return false
     end
     record.raw_ms=raw; record.capture_state='captured'
+    -- The first native counter sample is only a baseline. If it had no authenticated assignment,
+    -- use the latest context at completion; the stale assignment is bounded by the app's TTL.
+    if not attributed(record.context) then
+      local current=opts.context()
+      if attributed(current) or validContext(current) then record.context=clone(current) end
+    end
     if validContext(record.context) then
       local body=envelope('native',record.id,record.context,raw)
       local v=field(car,'isLastLapValid')
       record.native_valid=v
       body.native_valid=v==true
       if type(v)~='boolean' then body.native_valid_available=false end
-      n.queue[#n.queue+1]={id=body.message_id,payload=opts.encode(body)}
+      if not attributed(record.context) then
+        body.session_id='UNASSIGNED'; body.pilot_id='UNASSIGNED'
+        body.track_config=record.context.track_config or 'UNKNOWN'
+        body.assignment_state='UNASSIGNED'; body.review_reason='no_authenticated_assignment'
+        record.unassigned=true
+      end
+      enqueue('native',body)
     end
     n.pending_completion=nil
     return true
+  end
+  -- Upgrade durable native drafts created by older clients that captured a time but
+  -- withheld it because assignment context was missing. Preserve uncertainty; never infer identity.
+  for _,record in ipairs(n.records) do
+    if record.raw_ms and not record.unassigned then
+      local ctx=record.context
+      if not validContext(ctx) then
+        local current=opts.context()
+        if type(current)=='table' then ctx={station_id=current.station_id,track_config=current.track_config} end
+      end
+      if validContext(ctx) and not attributed(ctx) then
+        local body=envelope('native',record.id,ctx,record.raw_ms)
+        body.session_id='UNASSIGNED'; body.pilot_id='UNASSIGNED'
+        body.track_config=ctx.track_config or 'UNKNOWN'
+        body.native_valid=record.native_valid==true
+        if type(record.native_valid)~='boolean' then
+          local valid=type(opts.native_evidence)=='function' and opts.native_evidence(record) or nil
+          body.native_valid=valid==true
+          if type(valid)~='boolean' then body.native_valid_available=false end
+        end
+        body.assignment_state='UNASSIGNED'; body.review_reason='no_authenticated_assignment'
+        if enqueue('native',body) then record.context=ctx; record.unassigned=true; save('native') end
+      end
+    end
   end
   local function captureEvidence(evidence,native)
     if not native or not native.capture_state or native.raw_ms then return end

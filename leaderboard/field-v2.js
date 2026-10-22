@@ -29,6 +29,19 @@
         td.textContent = value(item);
         tr.appendChild(td);
       }
+      const action = document.createElement('td');
+      if (lap.session_id === 'UNASSIGNED' && lap.pilot_id === 'UNASSIGNED') {
+        const button = document.createElement('button'); button.type = 'button';
+        button.textContent = 'Preparar atribución manual';
+        button.addEventListener('click', () => {
+          byId('assign-station').value = lap.station_id || '';
+          byId('assign-lap').value = lap.lap_id || '';
+          byId('manual-assign').open = true;
+          byId('assign-session').focus();
+        });
+        action.appendChild(button);
+      } else action.textContent = 'Sin acción';
+      tr.appendChild(action);
       body.appendChild(tr);
     }
   }
@@ -59,6 +72,22 @@
     event.preventDefault(); generation++; token = byId('field-token').value; byId('field-token').value = ''; load();
   });
   byId('refresh').addEventListener('click', load);
+  byId('assign-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!token) { message('Ingresá un token antes de atribuir.'); return; }
+    const data = Object.fromEntries(['station','lap','session','pilot','reviewer','reason']
+      .map(name => [name, byId('assign-' + name).value.trim()]));
+    try {
+      const response = await fetch('/api/admin/v2/assign-unassigned', {method:'POST',
+        headers:{Authorization:'Bearer ' + token, 'Content-Type':'application/json'},
+        body:JSON.stringify({station_id:data.station,lap_id:data.lap,session_id:data.session,
+          pilot_id:data.pilot,reviewer:data.reviewer,reason:data.reason})});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || ('HTTP ' + response.status));
+      message('Atribución manual auditada. La vuelta sigue provisional y fuera del ranking.');
+      await load();
+    } catch (error) { message('No se pudo atribuir la vuelta: ' + error.message); }
+  });
   byId('clear').addEventListener('click', () => {
     generation++; token = ''; rows = []; byId('field-token').value = ''; render(); message('Sesión local borrada.');
   });

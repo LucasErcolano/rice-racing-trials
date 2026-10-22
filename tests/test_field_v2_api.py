@@ -72,6 +72,42 @@ class FieldV2HttpTests(unittest.TestCase):
         self.assertEqual(code, 200)
         return value['laps']
 
+    def test_unassigned_native_is_stored_without_attribution_and_never_previewed(self):
+        data = dict(protocol='rice-lap-or-v2', message_id='U1-native', station_id='ST01',
+                    session_id='UNASSIGNED', pilot_id='UNASSIGNED', track_config='UNKNOWN',
+                    lap_id='U1', raw_ms=217853, rules_version=1, channel='native', native_valid=True,
+                    assignment_state='UNASSIGNED', review_reason='no_authenticated_assignment')
+        code, result = self.send_channel('native', data)
+        self.assertEqual(code, 200)
+        self.assertEqual(result['session_id'], 'UNASSIGNED')
+        self.assertEqual(result['pilot_id'], 'UNASSIGNED')
+        self.assertEqual(result['raw_ms'], 217853)
+        self.assertEqual(result['status'], 'PENALTIES_PENDING')
+        self.assertIsNone(result['preview_ms'])
+        self.assertFalse(result['official'])
+        self.assertIn('unassigned', result['review_reasons'])
+        self.assertEqual(self.send_channel('native', data)[1]['duplicate'], True)
+
+    def test_manual_unassigned_attribution_is_audited_and_stays_unranked(self):
+        data = dict(protocol='rice-lap-or-v2', message_id='U2-native', station_id='ST01',
+                    session_id='UNASSIGNED', pilot_id='UNASSIGNED', track_config='UNKNOWN',
+                    lap_id='U2', raw_ms=217853, rules_version=1, channel='native', native_valid=True,
+                    assignment_state='UNASSIGNED', review_reason='no_authenticated_assignment')
+        self.assertEqual(self.send_channel('native', data)[0], 200)
+        payload = dict(station_id='ST01', lap_id='U2', session_id='S1', pilot_id='P1',
+                       reviewer='admin1', reason='Verified against the preserved event log.')
+        code, result = self.call('POST', '/api/admin/v2/assign-unassigned', payload, 'admin')
+        self.assertEqual(code, 200)
+        self.assertEqual(result['pilot_id'], 'P1')
+        self.assertEqual(result['session_id'], 'S1')
+        self.assertFalse(result['official'])
+        self.assertIsNone(result['preview_ms'])
+        self.assertIn('manual_attribution_review_required', result['review_reasons'])
+        audit = self.call('GET', '/api/admin/v2/field-reviews?station_id=ST01&session_id=S1&lap_id=U2', token='admin')[1]['reviews']
+        self.assertEqual(audit[0]['kind'], 'manual_unassigned_attribution')
+        self.assertEqual(audit[0]['from_pilot_id'], 'UNASSIGNED')
+        self.assertEqual(audit[0]['to_pilot_id'], 'P1')
+
     def test_both_orders_reconcile_exact_identity_and_recompute_provisional_preview(self):
         for lap, order in [('L1', ('native', 'penalty')), ('L2', ('penalty', 'native'))]:
             result = {}
