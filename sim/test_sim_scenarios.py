@@ -151,13 +151,13 @@ class Network(Base):
         h.laps(4)
         self.assertEqual(h.server_laps(), [])
         hud = '\n'.join(h.hud())
-        self.assertIn('Servidor: OFFLINE', hud)
+        self.assertIn('Server: Offline', hud)
         h.net.down = False
         h.run(31).settle(10)  # heartbeat/assignment refresh after 30 s, retries every 5 s
         laps = h.server_laps()
         self.assertGreaterEqual(len(laps), 2)
         self.assertEqual(len({l['lap_id'] for l in laps}), len(laps))
-        self.assertIn('Cola pendiente: 0', '\n'.join(h.hud()))
+        self.assertIn('Pending queue: 0', '\n'.join(h.hud()))
 
     def test_lost_ack_is_retried_as_identical_duplicate(self):
         h = self.make()
@@ -166,7 +166,7 @@ class Network(Base):
         laps = h.server_laps()
         self.assertGreaterEqual(len(laps), 1)
         self.assertEqual(len({l['lap_id'] for l in laps}), len(laps))
-        self.assertIn('Cola pendiente: 0', '\n'.join(h.hud()))
+        self.assertIn('Pending queue: 0', '\n'.join(h.hud()))
 
     def test_http500_and_captive_portal_are_not_acks(self):
         h = self.make()
@@ -174,7 +174,7 @@ class Network(Base):
         h.net.inject('garbage', '/api/laps', count=2)
         h.laps(3).settle(30)
         self.assertGreaterEqual(len(h.server_laps()), 1)
-        self.assertIn('Cola pendiente: 0', '\n'.join(h.hud()))
+        self.assertIn('Pending queue: 0', '\n'.join(h.hud()))
 
     def test_requests_in_flight_are_bounded(self):
         """The client keeps at most one request per channel (assignment, heartbeat, lap) in
@@ -229,7 +229,7 @@ class Persistence(Base):
         h.disk.inject('save', 'enospc', 'queue', count=-1)
         h.laps(3).settle()
         hud = '\n'.join(h.hud())
-        self.assertRegex(hud, 'Persistencia (DEGRADADA|NO DISPONIBLE)')
+        self.assertRegex(hud, 'Storage (DEGRADED|UNAVAILABLE)')
 
     def test_corrupted_journal_blocks_with_manual_recovery(self):
         h = self.make()
@@ -254,7 +254,7 @@ class Compatibility(Base):
     def test_no_io_falls_back_to_storage_and_reports_degraded(self):
         h = self.make(hidden_apis=('io.save', 'io.load', 'io.createDir', 'io.fileExists', 'io.deleteFile'))
         h.laps(3).settle()
-        self.assertIn('Persistencia DEGRADADA', '\n'.join(h.hud()))
+        self.assertIn('Storage DEGRADED', '\n'.join(h.hud()))
         self.assertGreaterEqual(len(h.server_laps()), 1)
 
     def test_diagnostics_file_is_valid_jsonl(self):

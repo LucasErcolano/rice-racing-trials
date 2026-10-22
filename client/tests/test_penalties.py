@@ -168,11 +168,11 @@ class Panel(unittest.TestCase):
         ac = lua.table_from({'setClipboardText': lambda s: copied.append(s)})
         self.assertTrue(m.draw(store, ui, ac, 0.016))
         labels = [c[1] for c in calls if c[0] == 'button']
-        self.assertTrue(any('Conos' in l for l in labels) and any('Off-track' in l for l in labels) and any('Slalom omitido' in l for l in labels))
-        pressed['name'] = '[x] Conos##on_cone'
+        self.assertTrue(any('Cones' in l for l in labels) and any('Off-track' in l for l in labels) and any('Missed slalom' in l for l in labels))
+        pressed['name'] = '[x] Cones##on_cone'
         m.draw(store, ui, ac, 0.016)
         self.assertFalse(store.cfg.cone.on)
-        pressed['name'] = 'Restaurar FSAE##reset'
+        pressed['name'] = 'Reset to FSAE##reset'
         m.draw(store, ui, ac, 0.016)
         self.assertTrue(store.cfg.cone.on)
 

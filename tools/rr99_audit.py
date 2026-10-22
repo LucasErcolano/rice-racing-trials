@@ -52,12 +52,14 @@ def main(argv=None):
     def gate(name, ok, detail=''):
         gates[name] = {'ok': bool(ok), 'detail': detail}
 
+    # README_RR99.txt is the current name; LEEME_RR99.txt is accepted only for older patch ZIPs.
+    PATCH_DOCS = ('Install-RR99.ps1', 'README_RR99.txt', 'LEEME_RR99.txt')
     car_files = lambda t: {k: v for k, v in t.items() if k.startswith('content/cars/')}
     O, Fc, Pc = car_files(O), car_files(F), car_files(P)
     gate('patch_files_identical_to_full', all(Fc.get(k) == v for k, v in Pc.items()),
          f'{len(Pc)} car files in patch')
     gate('patch_only_contains_cars_and_docs',
-         all(k.startswith('content/cars/') or k in ('Install-RR99.ps1', 'LEEME_RR99.txt') for k in P),
+         all(k.startswith('content/cars/') or k in PATCH_DOCS for k in P),
          ', '.join(sorted(k for k in P if not k.startswith('content/cars/'))))
     changed = {k for k in Fc if k in O and O[k] != Fc[k]}
     added = set(Fc) - set(O)

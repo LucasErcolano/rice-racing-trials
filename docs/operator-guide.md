@@ -10,30 +10,30 @@
 
 **If an attempt or station fails:** stop capture, secure the rig, preserve the attempt and logs, and ask the technician to run the documented recovery/preflight process. Never repeatedly restart or alter frozen files to make a check pass. A wheel safety issue, repeated failure or unexpected hash mismatch ends the session pending review.
 
-## Servidor, pantalla TV y panel de administración
+## Server, TV display and admin panel
 
-Referencia técnica completa: `docs/server-api.md`.
+Full technical reference: `docs/server-api.md`.
 
-**Estado de scoring.** El servidor se entrega desarmado (fail-closed): ninguna vuelta pasa a VALID ni entra al ranking hasta que Rice comisione el scoring oficial. La pantalla TV lo indica con el banner "SCORING NO COMISIONADO: resultados provisionales, no oficiales" y no muestra ranking; los tiempos brutos aparecen sólo en "Últimas vueltas" marcados "(prov.)". No hay que intentar evitarlo.
+**Scoring status.** The server ships disarmed (fail-closed): no lap becomes VALID or enters the ranking until Rice commissions official scoring. The TV display shows this with the banner "SCORING NOT COMMISSIONED: provisional, unofficial results" and shows no ranking; raw times appear only under "Last Laps", marked "(prov.)". Do not try to work around it.
 
-**Pantalla TV (`http://servidor:8080/tv`).** Abrir en el navegador del televisor a pantalla completa (F11). Muestra por defecto la sesión marcada activa, sin tipear nada. Columnas: posición, piloto, mejor vuelta corregida, tiempo bruto, penalidades, diferencia con el líder y cantidad de vueltas válidas. Arriba a la derecha: estado de conexión del navegador con el servidor (verde "Conectado", rojo "SIN CONEXIÓN" con la hora del último dato) y hora de la última actualización. A la derecha: estaciones (en línea o DESCONECTADA con la hora del último heartbeat) y conteo de vueltas pendientes de revisión. Se actualiza sola cada 5 segundos.
+**TV display (`http://server:8080/tv`).** Open it in the TV's browser in full screen (F11). By default it shows the session marked active, with no typing needed. Columns: position, driver, best corrected lap, raw time, penalties, gap to the leader and number of valid laps. Top right: the browser's connection status with the server (green "Connected to server", red "Server Offline" with the time of the last data) and the time of the last refresh. On the right: stations (Online, or Offline with the time of the last heartbeat) and the count of laps pending review. It refreshes itself every 5 seconds.
 
-**Panel de administración (`http://servidor:8080/admin`).** Sólo en una computadora de confianza. Pegar el token admin en "Token admin" y pulsar **Entrar**: queda guardado sólo en esa pestaña y se borra con **Salir** o al cerrarla. Flujo típico:
+**Admin panel (`http://server:8080/admin`).** Only on a trusted computer. Paste the admin token into "Admin token" and press **Sign in**: it is stored only in that tab and is cleared with **Sign out** or when the tab is closed. Typical flow:
 
-1. **Sesiones:** escribir ID y nombre, dejar tildado "Marcar activa" y pulsar **Crear / renombrar**. Otra sesión puede activarse luego con **Marcar activa** en la tabla. "Sesión de trabajo" elige qué sesión se revisa y exporta.
-2. **Pilotos:** ID (código, nunca nombre real en carpetas de resultados) y nombre; **Registrar**.
-3. **Asignación de estaciones:** elegir estación y piloto; **Asignar a la sesión de trabajo**. El historial resalta en color cada reasignación con el piloto anterior.
-4. **Estaciones y detectores:** conexión, último heartbeat, última vuelta, estado y resumen del detector, errores de sincronización. Una estación DESCONECTADA por más de 90 s: revisar red y cliente.
-5. **Calibración:** registrar la referencia del acta de inspección, el inspector y la configuración de pista. Sin calibración admin activa ninguna vuelta de endurance puede aprobarse.
-6. **Revisión de vueltas:** la tabla lista pendientes y errores de detector (destildar el filtro para ver todas). **Seleccionar** carga la vuelta en los formularios.
-   - **Penalidades:** corregir conos, fuera de pista, slalom perdidos (o DOO/OC), con revisor y motivo. El servidor recalcula el tiempo corregido; nunca cambia el estado de la vuelta.
-   - **Decisión:** aprobar o rechazar con revisor y motivo. Aprobar sólo funciona con scoring comisionado.
-   - Todo queda en **Auditoría de revisiones** con antes y después.
-7. **Errores de sincronización:** rechazos del servidor a las estaciones (token, protocolo, asignación, datos). Una versión de protocolo incompatible indica cliente desactualizado: llamar al técnico.
-8. **Exportación y backup:** CSV de vueltas, revisiones, asignaciones y calibraciones, o exportación completa JSON (de la sesión de trabajo, o de todas con "Todas las sesiones"). **Crear backup SQLite** guarda una copia verificada en la carpeta `backups` junto a la base.
+1. **Sessions:** enter an ID and name, leave "Mark active" checked and press **Create / rename**. Another session can be activated later with **Mark active** in the table. "Working session" selects which session is reviewed and exported.
+2. **Drivers:** ID (a code, never a real name in result folders) and name; **Register**.
+3. **Station assignment:** choose station and driver; **Assign to working session**. The history highlights each reassignment in color, with the previous driver.
+4. **Stations and detectors:** connection, last heartbeat, last lap, detector status and summary, sync errors. A station Offline for more than 90 s: check the network and the client.
+5. **Calibration:** record the inspection report reference, the inspector and the track configuration. Without an active admin calibration, no endurance lap can be approved.
+6. **Lap review:** the table lists pending laps and detector errors (uncheck the filter to see all). **Select** loads the lap into the forms.
+   - **Penalties:** correct cones, off-track, missed slaloms (or DOO/OC), with reviewer and reason. The server recalculates the corrected time; it never changes the lap status.
+   - **Decision:** approve or reject with reviewer and reason. Approval only works with commissioned scoring.
+   - Everything is recorded in **Review audit** with before and after values.
+7. **Sync errors:** server rejections of station requests (token, protocol, assignment, data). An incompatible protocol version means an outdated client: call the technician.
+8. **Export and backup:** CSV of laps, reviews, assignments and calibrations, or a full JSON export (of the working session, or of all sessions with "All sessions"). **Create SQLite backup** saves a verified copy in the `backups` folder next to the database.
 
-**Detener el servidor (Windows).** Ejecutar (técnico): `powershell -File .\server-admin.ps1 -Action Stop`. Detiene la tarea programada, el script que vigila al servidor y el servidor, y confirma que el puerto quedó libre. **No cerrarlo desde el Administrador de tareas:** si sólo se mata `RiceTrialsServer.exe`, el script lo toma como una caída y lo vuelve a levantar en unos 10 segundos. Para volver a arrancarlo: `Start-ScheduledTask -TaskName RiceTrialsServer`.
+**Stopping the server (Windows).** Run (technician): `powershell -File .\server-admin.ps1 -Action Stop`. It stops the scheduled task, the script that supervises the server and the server itself, and confirms that the port is free. **Do not close it from Task Manager:** if only `RiceTrialsServer.exe` is killed, the script treats it as a crash and brings it back in about 10 seconds. To start it again: `Start-ScheduledTask -TaskName RiceTrialsServer`.
 
-**Restaurar un backup.** En Windows (técnico): `powershell -File .\server-admin.ps1 -Action Restore -DatabasePath D:\protected\trials.sqlite -BackupFile D:\protected\backups\archivo.sqlite`. Detiene el servidor, pide escribir `RESTORE` para confirmar, verifica la integridad, guarda una copia previa de la base actual, sólo reemplaza si todo está bien y vuelve a arrancar la tarea si estaba corriendo. Con el servidor en código fuente: detenerlo y ejecutar `python3 server/app.py --db trials.sqlite --restore backups/archivo.sqlite`. En los dos casos, comprobar después en **Diagnóstico del servidor** la sesión activa y los conteos.
+**Restoring a backup.** On Windows (technician): `powershell -File .\server-admin.ps1 -Action Restore -DatabasePath D:\protected\trials.sqlite -BackupFile D:\protected\backups\archivo.sqlite`. It stops the server, asks you to type `RESTORE` to confirm, checks integrity, saves a copy of the current database first, replaces it only if everything is fine and restarts the task if it was running. With the server running from source: stop it and run `python3 server/app.py --db trials.sqlite --restore backups/archivo.sqlite`. In both cases, check the active session and the counts in **Server diagnostics** afterwards.
 
 **Scope note:** exact buttons, command names, server synchronization and data locations must be reconciled with the final application build before printing this guide for operators. The original handoff's `OPERATOR_GUIDE.md`, `DOO_OC_REVIEWER_GUIDE.md`, `VENUE_STARTUP_CHECKLIST.md`, `VENUE_SHUTDOWN_CHECKLIST.md` and `RECOVERY_PLAYBOOK.md` remain the detailed source for legacy behavior; they assume a Python-based handoff and should not be followed verbatim for deployment of a new executable.

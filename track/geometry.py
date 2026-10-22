@@ -169,12 +169,12 @@ def timing_gate(marks, path=None):
                 hits.append(hit)
     if hits and all(h == hits[0] for h in hits):
         gate['direction'] = hits[0]
-        gate['direction_source'] = 'sentido de fast_lane.ai (no verificado en juego)'
+        gate['direction_source'] = 'fast_lane.ai direction (not verified in game)'
         if spawn_direction is not None:
             gate['spawn_before_line'] = spawn_direction == hits[0]
     elif spawn_direction is not None:
         gate['direction'] = spawn_direction
-        gate['direction_source'] = 'lado de AC_START_0, supuesto antes de la línea (no verificado)'
+        gate['direction_source'] = 'AC_START_0 side, assumed before the line (not verified)'
     return gate
 
 
@@ -343,7 +343,7 @@ def cone_clusters(model, cell=0.3, max_extent=1.2, min_vertices=3):
     for item in merged:
         item.pop('mesh')
         item.pop('material')
-        item['status'] = 'candidato no confirmado'
+        item['status'] = 'unconfirmed candidate'
     return merged
 
 
@@ -362,8 +362,8 @@ def ai_path(data):
 def load_slalom(path, track_id):
     """Operator calibration file (``slalom-gates-v1``); absent means empty + warning."""
     if path is None or not Path(path).is_file():
-        return {'status': 'sin calibración', 'gates': [],
-                'warning': 'No existe archivo de calibración de slalom: no se infieren slaloms de la geometría.'}
+        return {'status': 'not calibrated', 'gates': [],
+                'warning': 'No slalom calibration file: slaloms are not inferred from geometry.'}
     data = json.loads(Path(path).read_text(encoding='utf-8'))
     if data.get('version') != 'slalom-gates-v1' or data.get('track') != track_id:
         raise ValueError('slalom file is not slalom-gates-v1 for this track')
@@ -376,7 +376,7 @@ def load_slalom(path, track_id):
         gates.append({'a': {'x': values[0], 'z': values[1]}, 'b': {'x': values[2], 'z': values[3]},
                       'label': str(gate.get('label', ''))[:40]})
     return {'status': data.get('status', 'candidate'), 'gates': gates, 'survey_id': data.get('survey_id'),
-            'warning': None if data.get('survey_id') else 'Slalom sin survey_id: no verificado por operador.'}
+            'warning': None if data.get('survey_id') else 'Slalom without survey_id: not verified by an operator.'}
 
 
 # ---------------------------------------------------------------- top level
@@ -395,7 +395,7 @@ def extract(source, track_id, slalom=None, mesh_points=None, max_points=20000,
         hashes['Dummy.kn5'] = sha256(dummy_raw)
         marks = landmarks(kn5.parse(dummy_raw))
     else:
-        warnings.append('Dummy.kn5 ausente: landmarks buscados en el modelo visual.')
+        warnings.append('Dummy.kn5 missing: landmarks searched in the visual model.')
 
     physics_raw = src.read('Physics.kn5')
     hashes['Physics.kn5'] = sha256(physics_raw)
@@ -415,12 +415,12 @@ def extract(source, track_id, slalom=None, mesh_points=None, max_points=20000,
             valid_meshes.append((node, world))
     if valid_meshes:
         polylines = boundary_polylines(valid_meshes, tolerance=limit_tolerance)
-        limits = {'status': 'derivado de superficies IS_VALID_TRACK=1 (surfaces.ini)',
-                  'note': 'Borde de la superficie válida, NO el trazado delimitado por conos.',
+        limits = {'status': 'derived from IS_VALID_TRACK=1 surfaces (surfaces.ini)',
+                  'note': 'Edge of the valid surface, NOT the cone-delimited course.',
                   'tolerance_m': limit_tolerance, 'polylines': polylines}
     else:
-        limits = {'status': 'no disponible', 'polylines': [],
-                  'note': 'Ninguna malla física coincide con una superficie válida de surfaces.ini.'}
+        limits = {'status': 'not available', 'polylines': [],
+                  'note': 'No physics mesh matches a valid surface in surfaces.ini.'}
     for name in TIMING_NAMES:
         for node, world, _ in physics.walk():
             if node.kind == 1 and node.name == name and name not in marks:
@@ -449,7 +449,7 @@ def extract(source, track_id, slalom=None, mesh_points=None, max_points=20000,
                 visual_points[node.name] = [[round(x, 2), round(z, 2)] for x, z in pts]
         del visual
     else:
-        warnings.append(f'{visual_name} ausente: sin clusters visuales.')
+        warnings.append(f'{visual_name} missing: no visual clusters.')
 
     path = []
     if src.exists('ai/fast_lane.ai'):
@@ -457,20 +457,20 @@ def extract(source, track_id, slalom=None, mesh_points=None, max_points=20000,
         hashes['ai/fast_lane.ai'] = sha256(ai_raw)
         path = ai_path(ai_raw)
     else:
-        warnings.append('ai/fast_lane.ai ausente.')
+        warnings.append('ai/fast_lane.ai missing.')
 
     return {
         'schema': SCHEMA, 'track': track_id, 'derived_from_proprietary_assets': True,
-        'distribution': 'NO DISTRIBUIR fuera del equipo: derivado de geometría del mod.',
-        'coordinates': 'Assetto Corsa world metres; 2D projection XZ (z hacia abajo como map.png)',
+        'distribution': 'DO NOT DISTRIBUTE outside the team: derived from mod geometry.',
+        'coordinates': 'Assetto Corsa world metres; 2D projection XZ (z pointing down, like map.png)',
         'source_sha256': hashes,
         'landmarks': marks,
         'timing_gate': timing_gate(marks, path),
         'surfaces': {k: {**v, **surface_stats.get(k, {'meshes': 0, 'vertices': 0})} for k, v in keys.items()},
         'limits': limits,
-        'cones': {'status': 'candidato no confirmado' if cones else 'no identificados',
-                  'note': 'Mallas de conos fusionadas en el KN5: cada punto es un cluster espacial, '
-                          'no un cono individual verificado.', 'clusters': cones},
+        'cones': {'status': 'unconfirmed candidate' if cones else 'none identified',
+                  'note': 'Cone meshes are merged in the KN5: each point is a spatial cluster, '
+                          'not a verified individual cone.', 'clusters': cones},
         'slalom': load_slalom(slalom, track_id),
         'ai_path': path,
         'mesh_points': visual_points,

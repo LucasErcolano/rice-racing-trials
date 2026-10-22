@@ -27,21 +27,23 @@ REQUIRED_CAR_FIELDS = ('car.position', 'car.lapCount')
 CONE_FIELDS = ('car.collidedWith', 'car.collisionDepth', 'car.wheelsOutside')
 
 CHECKLIST = [
-    ('preflight', 'Preflight del instalador: install.ps1 -Preflight sin errores (AC, CSP, MFT02, FSAEJ_Endurance).'),
-    ('open_ac', 'Abrir AC con MFT02 en FSAEJ_Endurance, sesión Practice.'),
-    ('hud_loads', 'El HUD Rice Trials aparece (o se abre desde la barra de apps) sin errores en la consola Lua.'),
-    ('diagnostics_on', 'Diagnóstico activado (diagnostics=true) y se crea apps/lua/RiceTrials/diagnostics/rice_diagnostics.jsonl.'),
-    ('outlap_2_laps', 'Outlap + 2 vueltas completas: anotar Best Lap nativo y tiempos mostrados por el HUD.'),
-    ('cone_touch', 'Tocar un cono a baja velocidad: anotar hora aproximada y si el HUD lo registra.'),
-    ('off_track', 'Salir de pista con 4 ruedas: anotar si la vuelta se invalida (isLapValid / HUD).'),
-    ('teleport_restart', 'Teleport con Restart session (o volver a boxes): el HUD descarta la vuelta en curso.'),
-    ('network_down', 'Desconectar la red (cable o Wi-Fi) durante una vuelta: el HUD muestra offline y encola.'),
-    ('network_up', 'Reconectar: la cola se envía y la vuelta aparece en /tv.'),
-    ('dummy_candidate', 'Aplicar el Dummy.kn5 candidato (Apply-DummyPatch.ps1 -Apply), repetir outlap + 1 vuelta, anotar si '
-                        'desaparece la vuelta de ~18 s, revertir (-Revert) y confirmar hash original.'),
-    ('mark_spoiled', 'Probar ac.markLapAsSpoiled en Practice (consola Lua o app de prueba): anotar si la vuelta queda invalidada.'),
+    ('preflight', 'Installer preflight: install.ps1 -Preflight without errors (AC, CSP, MFT02, FSAEJ_Endurance).'),
+    ('open_ac', 'Open AC with the MFT02 on FSAEJ_Endurance, Practice session.'),
+    ('hud_loads', 'The Rice Trials HUD appears (or opens from the apps bar) with no errors in the Lua console.'),
+    ('diagnostics_on', 'Diagnostics enabled (diagnostics=true) and apps/lua/RiceTrials/diagnostics/rice_diagnostics.jsonl is created.'),
+    ('outlap_2_laps', 'Out lap + 2 full laps: note the native Best Lap and the times shown by the HUD.'),
+    ('cone_touch', 'Touch a cone at low speed: note the approximate time and whether the HUD records it.'),
+    ('off_track', 'Go off-track with 4 wheels: note whether the lap is invalidated (isLapValid / HUD).'),
+    ('teleport_restart', 'Teleport with Restart session (or return to pits): the HUD discards the lap in progress.'),
+    ('network_down', 'Disconnect the network (cable or Wi-Fi) during a lap: the HUD shows offline and queues.'),
+    ('network_up', 'Reconnect: the queue is sent and the lap appears on /tv.'),
+    ('dummy_candidate', 'Apply the candidate Dummy.kn5 (Apply-DummyPatch.ps1 -Apply), repeat out lap + 1 lap, note whether '
+                        'the ~18 s lap disappears, revert (-Revert) and confirm the original hash.'),
+    ('mark_spoiled', 'Try ac.markLapAsSpoiled in Practice (Lua console or test app): note whether the lap is invalidated.'),
 ]
-STATUSES = ('pendiente', 'ok', 'falla', 'no aplica')
+STATUSES = ('pending', 'ok', 'fail', 'n/a')
+# Checklists filled with the earlier Spanish status values stay readable.
+STATUS_ALIASES = {'pendiente': 'pending', 'falla': 'fail', 'no aplica': 'n/a'}
 
 
 # ------------------------------------------------------------------ inventory
@@ -114,7 +116,7 @@ def read_jsonl(path):
 def checklist_template():
     return {'version': 'validation-checklist-v1', 'operator': '', 'station_id': '', 'date': '',
             'ac_version': '', 'csp_version': '',
-            'items': [{'id': i, 'text': t, 'status': 'pendiente', 'notes': ''} for i, t in CHECKLIST]}
+            'items': [{'id': i, 'text': t, 'status': 'pending', 'notes': ''} for i, t in CHECKLIST]}
 
 
 def _finite(value):
@@ -135,100 +137,100 @@ def analyse_diagnostics(records, bad, report, source):
         kinds[str(record.get('kind'))] = kinds.get(str(record.get('kind')), 0) + 1
         if record.get('synthetic') is True:
             report.synthetic = True
-    report.facts[f'diagnostico {source}'] = {'lineas': len(records), 'lineas_invalidas': bad, 'tipos': kinds}
+    report.facts[f'diagnostics {source}'] = {'lines': len(records), 'invalid_lines': bad, 'types': kinds}
     if bad:
-        report.warnings.append(f'{source}: {bad} líneas no son JSON válido (posible corte al cerrar AC).')
+        report.warnings.append(f'{source}: {bad} lines are not valid JSON (possibly cut off when AC closed).')
     starts = [r for r in records if r.get('kind') == 'session_start']
     if not starts:
-        report.blocking.append(f'{source}: no hay session_start: el diagnóstico no arrancó o el archivo no es del cliente.')
+        report.blocking.append(f'{source}: no session_start: diagnostics did not start or the file is not from the client.')
         return
     start = starts[-1]
     report.facts['csp_version'] = start.get('csp_version')
     report.facts['csp_code'] = start.get('csp_code')
-    report.verified.append(f'Cliente Lua cargó en CSP {start.get("csp_version")} y escribió diagnóstico ({source}).')
+    report.verified.append(f'Lua client loaded on CSP {start.get("csp_version")} and wrote diagnostics ({source}).')
     car, track = str(start.get('car_id') or ''), str(start.get('track_id') or '')
     if car != CAR_ID:
-        report.blocking.append(f'Auto en sesión {car!r}: se esperaba {CAR_ID}.')
+        report.blocking.append(f'Car in session {car!r}: expected {CAR_ID}.')
     else:
-        report.verified.append(f'Auto {CAR_ID} confirmado por ac.getCarID(0).')
+        report.verified.append(f'Car {CAR_ID} confirmed by ac.getCarID(0).')
     if TRACK_ID.lower() not in track.lower():
-        report.blocking.append(f'Pista en sesión {track!r}: se esperaba {TRACK_ID}.')
+        report.blocking.append(f'Track in session {track!r}: expected {TRACK_ID}.')
     else:
-        report.verified.append(f'Pista {track} confirmada por ac.getTrackFullID.')
+        report.verified.append(f'Track {track} confirmed by ac.getTrackFullID.')
     api = start.get('api') if isinstance(start.get('api'), dict) else {}
     for name in REQUIRED_APIS:
         if api.get(name) is not True:
-            report.blocking.append(f'API requerida ausente: {name}.')
+            report.blocking.append(f'Required API missing: {name}.')
     missing_optional = sorted(k for k, v in api.items() if v is not True and k not in REQUIRED_APIS)
     if missing_optional:
-        report.warnings.append('APIs opcionales ausentes: ' + ', '.join(missing_optional) + '.')
+        report.warnings.append('Optional APIs missing: ' + ', '.join(missing_optional) + '.')
     fields = {}
     for record in records:
         if record.get('kind') == 'car_fields' and isinstance(record.get('available'), dict):
             fields = record['available']
     for name in REQUIRED_CAR_FIELDS:
         if fields and fields.get(name) is not True:
-            report.blocking.append(f'Campo de auto ausente: {name}.')
+            report.blocking.append(f'Car field missing: {name}.')
     absent_cone = [n for n in CONE_FIELDS if fields and fields.get(n) is not True]
     if absent_cone:
-        report.warnings.append('Campos de contacto ausentes (detección de conos limitada): ' + ', '.join(absent_cone) + '.')
+        report.warnings.append('Contact fields missing (limited cone detection): ' + ', '.join(absent_cone) + '.')
 
     samples = [r for r in records if r.get('kind') == 'sample' and isinstance(r.get('pos'), dict)]
-    report.facts['muestras_posicion'] = len(samples)
+    report.facts['position_samples'] = len(samples)
     if samples:
-        report.verified.append(f'Muestreo de posición activo ({len(samples)} muestras).')
+        report.verified.append(f'Position sampling active ({len(samples)} samples).')
     else:
-        report.pending.append('Sin muestras de posición: no se puede analizar el recorrido.')
+        report.pending.append('No position samples: the driven path cannot be analysed.')
     jumps = 0
     for previous, current in zip(samples, samples[1:]):
         p, q = previous['pos'], current['pos']
         if all(_finite(v) for v in (p.get('x'), p.get('z'), q.get('x'), q.get('z'), previous.get('t'), current.get('t'))):
             if math.hypot(q['x'] - p['x'], q['z'] - p['z']) > 40 and current['t'] - previous['t'] < 2:
                 jumps += 1
-    report.facts['saltos_de_posicion'] = jumps
+    report.facts['position_jumps'] = jumps
     if jumps:
-        report.verified.append(f'Teleport/restart observado en la traza ({jumps} saltos > 40 m en < 2 s).')
+        report.verified.append(f'Teleport/restart observed in the trace ({jumps} jumps > 40 m in < 2 s).')
     else:
-        report.pending.append('No se observó teleport/restart en la traza.')
+        report.pending.append('No teleport/restart observed in the trace.')
 
     laps = [r for r in records if r.get('kind') == 'lap']
-    report.facts['vueltas_nativas'] = [{'lapCount': r.get('lapCount'), 'previousLapTimeMs': r.get('previousLapTimeMs'),
+    report.facts['native_laps'] = [{'lapCount': r.get('lapCount'), 'previousLapTimeMs': r.get('previousLapTimeMs'),
                                         'isLastLapValid': r.get('isLastLapValid')} for r in laps]
     completed = [r for r in laps if _finite(r.get('previousLapTimeMs')) and r['previousLapTimeMs'] > 0]
     if len(completed) >= 3:
-        report.verified.append(f'Contador de vueltas nativo avanzó {len(completed)} veces (outlap + 2 vueltas).')
+        report.verified.append(f'Native lap counter advanced {len(completed)} times (outlap + 2 laps).')
     else:
-        report.pending.append(f'Se esperaban outlap + 2 vueltas: sólo {len(completed)} vueltas nativas cerradas.')
+        report.pending.append(f'Expected outlap + 2 laps: only {len(completed)} native laps completed.')
     if completed and completed[0]['previousLapTimeMs'] < 30000:
         report.calibration.append(
-            f'Primera vuelta nativa de {completed[0]["previousLapTimeMs"] / 1000:.3f} s: confirma el outlap corto '
-            '(spawn a 19.291 m de la línea). Evaluar el Dummy.kn5 candidato o descartarla por estado en el cliente.')
+            f'First native lap of {completed[0]["previousLapTimeMs"] / 1000:.3f} s: confirms the short out lap '
+            '(spawn 19.291 m from the line). Evaluate the candidate Dummy.kn5 or discard it via client state.')
 
     contacts = [r for r in records if r.get('kind') == 'collision' and _finite(r.get('collisionDepth'))
                 and r['collisionDepth'] > 0]
     if contacts:
-        report.verified.append(f'Contactos registrados por el diagnóstico: {len(contacts)} (no distingue cono de muro).')
+        report.verified.append(f'Contacts recorded by diagnostics: {len(contacts)} (cannot tell a cone from a wall).')
     else:
-        report.pending.append('No hay contacto registrado: repetir el toque de cono.')
+        report.pending.append('No contact recorded: repeat the cone touch.')
     outside = [r for r in records if (r.get('kind') == 'collision' and _finite(r.get('wheelsOutside'))
                                       and r['wheelsOutside'] >= 4) or
                (r.get('kind') == 'sample' and r.get('isLapValid') is False)]
     if outside:
-        report.verified.append('Salida de pista observada (wheelsOutside >= 4 o isLapValid=false).')
+        report.verified.append('Off-track observed (wheelsOutside >= 4 or isLapValid=false).')
     else:
-        report.pending.append('No se observó salida de pista.')
+        report.pending.append('No off-track observed.')
 
     states = [r.get('state') for r in records if r.get('kind') == 'connection']
     online = [s.get('online') for s in states if isinstance(s, dict) and 'online' in s]
     went_down = any(a is True and b is False for a, b in zip(online, online[1:]))
     came_back = any(a is False and b is True for a, b in zip(online, online[1:]))
     if went_down and came_back:
-        report.verified.append('Corte y reconexión de red observados en el estado de conexión del cliente.')
+        report.verified.append('Network drop and reconnection observed in the client connection state.')
     else:
-        report.pending.append('Corte/reconexión de red no observados en el diagnóstico.')
+        report.pending.append('Network drop/reconnection not observed in diagnostics.')
     errors = [r.get('message') for r in records if r.get('kind') == 'error']
     if errors:
-        report.warnings.append(f'{len(errors)} errores del cliente; primero: {str(errors[0])[:160]}')
+        report.warnings.append(f'{len(errors)} client errors; first: {str(errors[0])[:160]}')
     spoiled = [r for r in records if r.get('kind') == 'spoiled_test']
     if spoiled:
         result = spoiled[-1]
@@ -242,20 +244,20 @@ def analyse_export(data, report):
     statuses = {}
     for lap in laps:
         statuses[str(lap.get('status'))] = statuses.get(str(lap.get('status')), 0) + 1
-    report.facts['servidor'] = {'schema_version': data.get('schema_version'), 'rules_version': data.get('rules_version'),
-                                'scoring_armed': data.get('scoring_armed'), 'vueltas': len(laps),
-                                'estados': statuses, 'sync_errors': len(data.get('sync_errors') or [])}
+    report.facts['server'] = {'schema_version': data.get('schema_version'), 'rules_version': data.get('rules_version'),
+                                'scoring_armed': data.get('scoring_armed'), 'laps': len(laps),
+                                'statuses': statuses, 'sync_errors': len(data.get('sync_errors') or [])}
     if laps:
-        report.verified.append(f'El servidor recibió {len(laps)} vueltas (export).')
+        report.verified.append(f'The server received {len(laps)} laps (export).')
     else:
-        report.pending.append('El export del servidor no contiene vueltas.')
+        report.pending.append('The server export contains no laps.')
     if data.get('sync_errors'):
-        report.warnings.append(f'{len(data["sync_errors"])} errores de sincronización en el servidor.')
+        report.warnings.append(f'{len(data["sync_errors"])} sync errors on the server.')
     if not data.get('scoring_armed'):
-        report.calibration.append('Scoring no armado en el servidor (esperado hasta aprobar la calibración).')
+        report.calibration.append('Scoring not armed on the server (expected until calibration is approved).')
     calibrations = [c for c in data.get('calibrations') or [] if c.get('active')]
     if not calibrations:
-        report.calibration.append('Sin calibración activa por estación: la ruta sigue sin aprobar.')
+        report.calibration.append('No active calibration per station: the route is still not approved.')
 
 
 def analyse_checklist(data, report):
@@ -263,24 +265,25 @@ def analyse_checklist(data, report):
         raise ValueError('checklist must be validation-checklist-v1')
     if data.get('synthetic') is True:
         report.synthetic = True
-    report.facts['operador'] = data.get('operator') or '(sin nombre)'
+    report.facts['operator'] = data.get('operator') or '(no name)'
     known = dict(CHECKLIST)
     seen = set()
     for item in data.get('items', []):
         item_id, status = item.get('id'), item.get('status')
+        status = STATUS_ALIASES.get(status, status) if isinstance(status, str) else status
         if item_id not in known or status not in STATUSES:
-            report.warnings.append(f'Ítem de checklist inválido: {item_id!r} / {status!r}.')
+            report.warnings.append(f'Invalid checklist item: {item_id!r} / {status!r}.')
             continue
         seen.add(item_id)
-        text = f'[{item_id}] {known[item_id]}' + (f' Nota: {item["notes"]}' if item.get('notes') else '')
+        text = f'[{item_id}] {known[item_id]}' + (f' Note: {item["notes"]}' if item.get('notes') else '')
         if status == 'ok':
-            report.verified.append('Operador: ' + text)
-        elif status == 'falla':
-            report.blocking.append('Operador: ' + text)
-        elif status == 'pendiente':
-            report.pending.append('Operador: ' + text)
+            report.verified.append('Operator: ' + text)
+        elif status == 'fail':
+            report.blocking.append('Operator: ' + text)
+        elif status == 'pending':
+            report.pending.append('Operator: ' + text)
     for item_id in sorted(set(known) - seen):
-        report.pending.append(f'Operador: [{item_id}] sin registrar.')
+        report.pending.append(f'Operator: [{item_id}] not recorded.')
 
 
 def build(diagnostics=(), export=None, checklist=None, geometry=None):
@@ -297,62 +300,62 @@ def build(diagnostics=(), export=None, checklist=None, geometry=None):
             document = json.loads(Path(geometry).read_text(encoding='utf-8'))
             try:
                 samples, _ = telemetry.load(path)
-                report.facts[f'cruces linea nativa {Path(path).name}'] = telemetry.analyse(
+                report.facts[f'native line crossings {Path(path).name}'] = telemetry.analyse(
                     samples, document.get('timing_gate'))
             except ValueError as exc:
-                report.warnings.append(f'Telemetría no analizable: {exc}')
+                report.warnings.append(f'Telemetry not analysable: {exc}')
     if not diagnostics:
-        report.pending.append('No se entregó diagnóstico JSONL del cliente.')
+        report.pending.append('No client diagnostics JSONL provided.')
     if export:
         sources[str(export)] = digest(Path(export))
         analyse_export(json.loads(Path(export).read_text(encoding='utf-8')), report)
     else:
-        report.pending.append('No se entregó export JSON del servidor (/api/admin/export.json).')
+        report.pending.append('No server export JSON provided (/api/admin/export.json).')
     if checklist:
         sources[str(checklist)] = digest(Path(checklist))
         analyse_checklist(json.loads(Path(checklist).read_text(encoding='utf-8')), report)
     else:
-        report.pending.append('No se entregó checklist del operador.')
-    report.calibration.append('Checkpoints de ruta: route_config.lua con verified=false hasta aprobación explícita.')
-    report.calibration.append('Slalom: sin archivo de calibración salvo que el operador lo cargue (track/tool.py --slalom).')
+        report.pending.append('No operator checklist provided.')
+    report.calibration.append('Route checkpoints: route_config.lua keeps verified=false until explicit approval.')
+    report.calibration.append('Slalom: no calibration file unless the operator loads one (track/tool.py --slalom).')
     if report.synthetic:
-        report.warnings.insert(0, 'DATOS SINTÉTICOS: este informe no certifica ninguna función en Assetto Corsa.')
-    status = 'BLOQUEADO' if report.blocking else ('INCOMPLETO' if report.pending else 'LISTO PARA REVISIÓN')
+        report.warnings.insert(0, 'SYNTHETIC DATA: this report certifies no feature in Assetto Corsa.')
+    status = 'BLOCKED' if report.blocking else ('INCOMPLETE' if report.pending else 'READY FOR REVIEW')
     if report.synthetic:
-        status = 'SINTÉTICO (no válido)'
+        status = 'SYNTHETIC (not valid)'
     return {'status': status, 'synthetic': report.synthetic, 'verified': report.verified, 'pending': report.pending,
             'blocking': report.blocking, 'warnings': report.warnings, 'calibration': report.calibration,
             'facts': report.facts, 'inputs_sha256': sources}
 
 
-SECTIONS = (('verified', 'Funciones verificadas'), ('pending', 'Pendientes'), ('blocking', 'Errores bloqueantes'),
-            ('warnings', 'Advertencias'), ('calibration', 'Requisitos de calibración'))
+SECTIONS = (('verified', 'Verified features'), ('pending', 'Pending'), ('blocking', 'Blocking errors'),
+            ('warnings', 'Warnings'), ('calibration', 'Calibration requirements'))
 
 
 def markdown(result):
-    lines = ['# Informe de validación Windows (Rice Racing Driver Trials)', '',
-             f'Estado: **{result["status"]}**', '']
+    lines = ['# Windows validation report (Rice Racing Driver Trials)', '',
+             f'Status: **{result["status"]}**', '']
     if result['synthetic']:
-        lines += ['> DATOS SINTÉTICOS: generado con archivos de prueba, no con una sesión real.', '']
+        lines += ['> SYNTHETIC DATA: generated from test files, not from a real session.', '']
     for key, title in SECTIONS:
         lines += [f'## {title}', '']
-        lines += [f'- {item}' for item in result[key]] or ['- (ninguno)']
+        lines += [f'- {item}' for item in result[key]] or ['- (none)']
         lines.append('')
-    lines += ['## Datos', '', '```json', json.dumps(result['facts'], indent=1, ensure_ascii=False), '```', '',
-              '## Entradas (SHA-256)', '']
+    lines += ['## Data', '', '```json', json.dumps(result['facts'], indent=1, ensure_ascii=False), '```', '',
+              '## Inputs (SHA-256)', '']
     lines += [f'- `{k}`: `{v}`' for k, v in result['inputs_sha256'].items()]
     return '\n'.join(lines) + '\n'
 
 
 def html_page(result):
-    body = [f'<h1>Informe de validación Windows</h1><p>Estado: <b>{html.escape(result["status"])}</b></p>']
+    body = [f'<h1>Windows validation report</h1><p>Status: <b>{html.escape(result["status"])}</b></p>']
     if result['synthetic']:
-        body.append('<p style="color:#b00"><b>DATOS SINTÉTICOS</b>: no certifica nada.</p>')
+        body.append('<p style="color:#b00"><b>SYNTHETIC DATA</b>: certifies nothing.</p>')
     for key, title in SECTIONS:
-        items = ''.join(f'<li>{html.escape(i)}</li>' for i in result[key]) or '<li>(ninguno)</li>'
+        items = ''.join(f'<li>{html.escape(i)}</li>' for i in result[key]) or '<li>(none)</li>'
         body.append(f'<h2>{title}</h2><ul class="{key}">{items}</ul>')
-    body.append('<h2>Datos</h2><pre>' + html.escape(json.dumps(result['facts'], indent=1, ensure_ascii=False)) + '</pre>')
-    return ('<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Validación Rice Trials</title>'
+    body.append('<h2>Data</h2><pre>' + html.escape(json.dumps(result['facts'], indent=1, ensure_ascii=False)) + '</pre>')
+    return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Rice Trials validation</title>'
             '<style>body{font:14px sans-serif;margin:20px}.blocking li{color:#b00}.verified li{color:#060}'
             '.warnings li{color:#a60}</style></head><body>' + ''.join(body) + '</body></html>\n')
 

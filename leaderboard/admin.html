@@ -1,96 +1,96 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Rice Racing · Administración</title>
+<title>Rice Racing · Administration</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/admin.css">
 </head>
 <body>
 <header class="top">
-  <h1>Rice Racing · Administración</h1>
+  <h1>Rice Racing · Administration</h1>
   <div class="login">
-    <label>Token admin <input id="token" type="password" autocomplete="off" placeholder="Pegar token"></label>
-    <button id="login" type="button">Entrar</button>
-    <button id="logout" type="button" class="secondary">Salir</button>
-    <span id="auth-state" class="pill" data-state="out">Sin autenticar</span>
+    <label>Admin token <input id="token" type="password" autocomplete="off" placeholder="Paste token"></label>
+    <button id="login" type="button">Sign in</button>
+    <button id="logout" type="button" class="secondary">Sign out</button>
+    <span id="auth-state" class="pill" data-state="out">Not signed in</span>
   </div>
-  <a href="/tv" target="_blank" rel="noopener">Abrir pantalla TV</a>
+  <a href="/tv" target="_blank" rel="noopener">Open TV screen</a>
 </header>
-<p class="hint">El token queda sólo en esta pestaña (sessionStorage). Usar únicamente en una computadora de confianza.</p>
-<div id="armed-banner" class="banner" hidden>SCORING NO COMISIONADO: el servidor no aprueba ni rankea vueltas (resultados provisionales, no oficiales).</div>
+<p class="hint">The token is kept only in this tab (sessionStorage). Use it only on a trusted computer.</p>
+<div id="armed-banner" class="banner" hidden>SCORING NOT COMMISSIONED: the server does not approve or rank laps (provisional, unofficial results).</div>
 <p id="message" class="message" role="status" aria-live="polite"></p>
 
 <main class="panels">
   <section class="panel" id="panel-sessions">
-    <h2>Sesiones</h2>
-    <div class="row"><input id="session" placeholder="ID de sesión"><input id="session-name" placeholder="Nombre"><label class="check"><input id="session-activate" type="checkbox" checked> Marcar activa</label><button id="save-session" type="button">Crear / renombrar</button></div>
-    <table class="data"><thead><tr><th>ID</th><th>Nombre</th><th>Creada</th><th>Estado</th><th></th></tr></thead><tbody id="sessions"></tbody></table>
-    <div class="row"><label>Sesión de trabajo <select id="current-session"></select></label><button id="refresh" type="button" class="secondary">Actualizar todo</button></div>
+    <h2>Sessions</h2>
+    <div class="row"><input id="session" placeholder="Session ID"><input id="session-name" placeholder="Name"><label class="check"><input id="session-activate" type="checkbox" checked> Mark active</label><button id="save-session" type="button">Create / rename</button></div>
+    <table class="data"><thead><tr><th>ID</th><th>Name</th><th>Created</th><th>Status</th><th></th></tr></thead><tbody id="sessions"></tbody></table>
+    <div class="row"><label>Working session <select id="current-session"></select></label><button id="refresh" type="button" class="secondary">Refresh all</button></div>
   </section>
 
   <section class="panel" id="panel-pilots">
-    <h2>Pilotos</h2>
-    <div class="row"><input id="pilot" placeholder="ID de piloto"><input id="pilot-name" placeholder="Nombre"><button id="save-pilot" type="button">Registrar</button></div>
-    <table class="data"><thead><tr><th>ID</th><th>Nombre</th></tr></thead><tbody id="pilots"></tbody></table>
+    <h2>Drivers</h2>
+    <div class="row"><input id="pilot" placeholder="Driver ID"><input id="pilot-name" placeholder="Name"><button id="save-pilot" type="button">Register</button></div>
+    <table class="data"><thead><tr><th>ID</th><th>Name</th></tr></thead><tbody id="pilots"></tbody></table>
   </section>
 
   <section class="panel" id="panel-assign">
-    <h2>Asignación de estaciones</h2>
-    <div class="row"><select id="assign-station" aria-label="Estación"></select><select id="assign-pilot" aria-label="Piloto"></select><button id="assign" type="button">Asignar a la sesión de trabajo</button></div>
-    <h3>Historial de asignaciones (reasignaciones resaltadas)</h3>
-    <table class="data"><thead><tr><th>Rev.</th><th>Estación</th><th>Sesión</th><th>Piloto</th><th>Anterior</th><th>Fecha (UTC)</th></tr></thead><tbody id="assignment-history"></tbody></table>
+    <h2>Station Assignment</h2>
+    <div class="row"><select id="assign-station" aria-label="Station"></select><select id="assign-pilot" aria-label="Driver"></select><button id="assign" type="button">Assign to working session</button></div>
+    <h3>Assignment history (reassignments highlighted)</h3>
+    <table class="data"><thead><tr><th>Rev.</th><th>Station</th><th>Session</th><th>Driver</th><th>Previous</th><th>Date (UTC)</th></tr></thead><tbody id="assignment-history"></tbody></table>
   </section>
 
   <section class="panel wide" id="panel-stations">
-    <h2>Estaciones y detectores</h2>
-    <table class="data"><thead><tr><th>Estación</th><th>Conexión</th><th>Último heartbeat</th><th>Sesión / piloto</th><th>Rev.</th><th>Última vuelta</th><th>Detector</th><th>Resumen detector</th><th>Errores sync</th></tr></thead><tbody id="stations"></tbody></table>
+    <h2>Stations and detectors</h2>
+    <table class="data"><thead><tr><th>Station</th><th>Connection</th><th>Last heartbeat</th><th>Session / Driver</th><th>Rev.</th><th>Last Lap</th><th>Detector</th><th>Detector summary</th><th>Sync errors</th></tr></thead><tbody id="stations"></tbody></table>
   </section>
 
   <section class="panel wide" id="panel-laps">
-    <h2>Revisión de vueltas</h2>
-    <div class="row"><label class="check"><input id="only-pending" type="checkbox" checked> Sólo pendientes / error de detector</label></div>
-    <table class="data"><thead><tr><th>Estación</th><th>Vuelta</th><th>N°</th><th>Piloto</th><th>Prueba</th><th>Estado</th><th>Bruto</th><th>Corregida</th><th>Penalidades</th><th>Detector</th><th>Calib.</th><th></th></tr></thead><tbody id="pending"></tbody></table>
+    <h2>Lap review</h2>
+    <div class="row"><label class="check"><input id="only-pending" type="checkbox" checked> Only pending / detector error</label></div>
+    <table class="data"><thead><tr><th>Station</th><th>Lap</th><th>No.</th><th>Driver</th><th>Event</th><th>Status</th><th>Raw</th><th>Corrected</th><th>Penalties</th><th>Detector</th><th>Calib.</th><th></th></tr></thead><tbody id="pending"></tbody></table>
     <div class="forms">
-      <fieldset><legend>Decisión (aprobar / rechazar)</legend>
-        <div class="row"><input id="station" placeholder="Estación"><input id="lap-id" placeholder="ID de vuelta"><select id="decision"><option value="approve">Aprobar</option><option value="reject">Rechazar</option></select></div>
-        <div class="row"><input id="reviewer" placeholder="Revisor"><input id="reason" placeholder="Motivo / evidencia"><button id="review" type="button">Registrar decisión</button></div>
+      <fieldset><legend>Decision (approve / reject)</legend>
+        <div class="row"><input id="station" placeholder="Station"><input id="lap-id" placeholder="Lap ID"><select id="decision"><option value="approve">Approve</option><option value="reject">Reject</option></select></div>
+        <div class="row"><input id="reviewer" placeholder="Reviewer"><input id="reason" placeholder="Reason / evidence"><button id="review" type="button">Record decision</button></div>
       </fieldset>
-      <fieldset><legend>Penalidades (recalcula el corregido en el servidor)</legend>
-        <div class="row"><label>Conos <input id="pen-cone" type="number" min="0" max="100"></label><label>Fuera de pista <input id="pen-off" type="number" min="0" max="100"></label><label>Slalom perdidos <input id="pen-slalom" placeholder="S1,S4"></label></div>
+      <fieldset><legend>Penalties (server recalculates the corrected time)</legend>
+        <div class="row"><label>Cones <input id="pen-cone" type="number" min="0" max="100"></label><label>Off-track <input id="pen-off" type="number" min="0" max="100"></label><label>Missed slalom <input id="pen-slalom" placeholder="S1,S4"></label></div>
         <div class="row"><label>DOO <input id="pen-doo" type="number" min="0" max="100"></label><label>OC <input id="pen-oc" type="number" min="0" max="100"></label></div>
-        <div class="row"><input id="pen-reviewer" placeholder="Revisor"><input id="pen-reason" placeholder="Motivo"><button id="save-penalties" type="button">Guardar penalidades</button></div>
-        <p class="hint">Ajustar penalidades nunca cambia el estado: una vuelta sólo pasa a VALID por decisión de aprobación con scoring comisionado.</p>
+        <div class="row"><input id="pen-reviewer" placeholder="Reviewer"><input id="pen-reason" placeholder="Reason"><button id="save-penalties" type="button">Save penalties</button></div>
+        <p class="hint">Adjusting penalties never changes the status: a lap only becomes VALID through an approval decision with scoring commissioned.</p>
       </fieldset>
     </div>
-    <h3>Auditoría de revisiones</h3>
+    <h3>Review audit</h3>
     <ul id="audit" class="audit"></ul>
   </section>
 
   <section class="panel" id="panel-calibration">
-    <h2>Calibración (inspeccionada por admin)</h2>
-    <div class="row"><select id="cal-station" aria-label="Estación"></select><input id="track-config" placeholder="Config. de pista"></div>
-    <div class="row"><input id="reference" placeholder="Referencia del acta de inspección"><input id="operator" placeholder="Inspector"><label class="check"><input id="active" type="checkbox" checked> Activa</label><button id="calibrate" type="button">Guardar calibración</button></div>
-    <p class="hint">Los flags de calibración del cliente por sí solos nunca certifican una vuelta.</p>
-    <table class="data"><thead><tr><th>Estación</th><th>Pista</th><th>Referencia</th><th>Inspector</th><th>Activa</th><th>Actualizada</th></tr></thead><tbody id="calibrations"></tbody></table>
+    <h2>Calibration (admin-inspected)</h2>
+    <div class="row"><select id="cal-station" aria-label="Station"></select><input id="track-config" placeholder="Track config"></div>
+    <div class="row"><input id="reference" placeholder="Inspection record reference"><input id="operator" placeholder="Inspector"><label class="check"><input id="active" type="checkbox" checked> Active</label><button id="calibrate" type="button">Save calibration</button></div>
+    <p class="hint">Client calibration flags alone never certify a lap.</p>
+    <table class="data"><thead><tr><th>Station</th><th>Track</th><th>Reference</th><th>Inspector</th><th>Active</th><th>Updated</th></tr></thead><tbody id="calibrations"></tbody></table>
   </section>
 
   <section class="panel" id="panel-sync">
-    <h2>Errores de sincronización</h2>
-    <table class="data"><thead><tr><th>Fecha (UTC)</th><th>Estación</th><th>Ruta</th><th>HTTP</th><th>Causa</th><th>Vuelta</th></tr></thead><tbody id="sync-errors"></tbody></table>
+    <h2>Sync errors</h2>
+    <table class="data"><thead><tr><th>Date (UTC)</th><th>Station</th><th>Route</th><th>HTTP</th><th>Cause</th><th>Lap</th></tr></thead><tbody id="sync-errors"></tbody></table>
   </section>
 
   <section class="panel" id="panel-export">
-    <h2>Exportación y backup</h2>
-    <div class="row"><label class="check"><input id="export-all" type="checkbox"> Todas las sesiones</label></div>
-    <div class="row buttons"><button id="export" type="button">Vueltas CSV</button><button id="export-reviews" type="button">Revisiones CSV</button><button id="export-assignments" type="button">Asignaciones CSV</button><button id="export-calibrations" type="button">Calibraciones CSV</button><button id="export-json" type="button">Exportación completa JSON</button></div>
-    <div class="row"><button id="backup" type="button">Crear backup SQLite</button></div>
+    <h2>Export and backup</h2>
+    <div class="row"><label class="check"><input id="export-all" type="checkbox"> All sessions</label></div>
+    <div class="row buttons"><button id="export" type="button">Laps CSV</button><button id="export-reviews" type="button">Reviews CSV</button><button id="export-assignments" type="button">Assignments CSV</button><button id="export-calibrations" type="button">Calibrations CSV</button><button id="export-json" type="button">Full JSON export</button></div>
+    <div class="row"><button id="backup" type="button">Create SQLite backup</button></div>
     <ul id="backups" class="audit"></ul>
-    <p class="hint">Restaurar se hace con el servidor detenido: <code>python server/app.py --db trials.sqlite --restore archivo.sqlite</code>.</p>
+    <p class="hint">Restore with the server stopped: <code>python server/app.py --db trials.sqlite --restore file.sqlite</code>.</p>
   </section>
 
   <section class="panel" id="panel-diagnostics">
-    <h2>Diagnóstico del servidor</h2>
+    <h2>Server diagnostics</h2>
     <dl id="diagnostics" class="diag"></dl>
   </section>
 </main>

@@ -1,12 +1,12 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  Aplica o revierte un Dummy.kn5 CANDIDATO NO VERIFICADO EN JUEGO.
+  Applies or reverts a Dummy.kn5 CANDIDATE NOT VERIFIED IN GAME.
 .DESCRIPTION
-  -Apply: verifica que el Dummy.kn5 instalado tenga el SHA-256 original del manifiesto,
-  guarda una copia en <pista>\RiceTrials_backup\Dummy.kn5.<sha>.bak (si no existe) y copia el
-  candidato tras verificar su SHA-256. -Revert: restaura el backup verificando su hash.
-  -Status: informa qué versión está instalada. Nunca toca otros archivos del mod.
+  -Apply: verifies that the installed Dummy.kn5 has the manifest original SHA-256,
+  saves a copy to <track>\RiceTrials_backup\Dummy.kn5.<sha>.bak (if not present) and copies the
+  candidate after verifying its SHA-256. -Revert: restores the backup after verifying its hash.
+  -Status: reports which version is installed. Never touches other mod files.
 .EXAMPLE
   .\Apply-DummyPatch.ps1 -AcRoot 'C:\Program Files (x86)\Steam\steamapps\common\assettocorsa' -Apply
 #>
@@ -26,44 +26,44 @@ function Get-Sha256([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm
 $manifestPath = Join-Path $PatchDir 'manifest.json'
 $candidate = Join-Path $PatchDir 'Dummy.kn5.candidate'
 if (-not (Test-Path -LiteralPath $manifestPath) -or -not (Test-Path -LiteralPath $candidate)) {
-    throw "Falta manifest.json o Dummy.kn5.candidate en $PatchDir"
+    throw "Missing manifest.json or Dummy.kn5.candidate in $PatchDir"
 }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-if ($manifest.track -ne $Track) { throw "El manifiesto es para $($manifest.track), no para $Track" }
+if ($manifest.track -ne $Track) { throw "The manifest is for $($manifest.track), not for $Track" }
 $trackDir = Join-Path $AcRoot "content\tracks\$Track"
 $target = Join-Path $trackDir 'Dummy.kn5'
-if (-not (Test-Path -LiteralPath $target)) { throw "No existe $target" }
+if (-not (Test-Path -LiteralPath $target)) { throw "Not found: $target" }
 $backupDir = Join-Path $trackDir 'RiceTrials_backup'
 $backup = Join-Path $backupDir "Dummy.kn5.$($manifest.original_sha256).bak"
 $installed = Get-Sha256 $target
 $state = switch ($installed) {
     $manifest.original_sha256 { 'original' }
-    $manifest.candidate_sha256 { 'candidato' }
-    default { 'desconocido' }
+    $manifest.candidate_sha256 { 'candidate' }
+    default { 'unknown' }
 }
-Write-Host "Etiqueta: $($manifest.label)"
-Write-Host "Instalado: $installed ($state)"
+Write-Host "Label: $($manifest.label)"
+Write-Host "Installed: $installed ($state)"
 
 if ($Apply) {
-    if ($state -eq 'candidato') { Write-Host 'El candidato ya está instalado.'; exit 0 }
-    if ($state -ne 'original') { throw 'El Dummy.kn5 instalado no coincide con el original del manifiesto: no se aplica.' }
-    if ((Get-Sha256 $candidate) -ne $manifest.candidate_sha256) { throw 'El candidato no coincide con su SHA-256: archivo dañado.' }
+    if ($state -eq 'candidate') { Write-Host 'The candidate is already installed.'; exit 0 }
+    if ($state -ne 'original') { throw 'The installed Dummy.kn5 does not match the manifest original: not applying.' }
+    if ((Get-Sha256 $candidate) -ne $manifest.candidate_sha256) { throw 'The candidate does not match its SHA-256: file corrupted.' }
     New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
     if (-not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $target -Destination $backup }
-    if ((Get-Sha256 $backup) -ne $manifest.original_sha256) { throw 'El backup no coincide con el original: abortado.' }
+    if ((Get-Sha256 $backup) -ne $manifest.original_sha256) { throw 'The backup does not match the original: aborted.' }
     Copy-Item -LiteralPath $candidate -Destination $target -Force
     if ((Get-Sha256 $target) -ne $manifest.candidate_sha256) {
         Copy-Item -LiteralPath $backup -Destination $target -Force
-        throw 'La copia del candidato falló la verificación: se restauró el original.'
+        throw 'The candidate copy failed verification: the original was restored.'
     }
-    Write-Host "Candidato aplicado. Backup: $backup"
-    Write-Host 'Si Content Manager o un servidor online validan checksums, esta pista modificada puede ser rechazada.'
+    Write-Host "Candidate applied. Backup: $backup"
+    Write-Host 'If Content Manager or an online server validates checksums, this modified track may be rejected.'
 }
 elseif ($Revert) {
-    if ($state -eq 'original') { Write-Host 'Ya está el original.'; exit 0 }
-    if (-not (Test-Path -LiteralPath $backup)) { throw "No hay backup en $backup" }
-    if ((Get-Sha256 $backup) -ne $manifest.original_sha256) { throw 'El backup no coincide con el SHA-256 original.' }
+    if ($state -eq 'original') { Write-Host 'The original is already installed.'; exit 0 }
+    if (-not (Test-Path -LiteralPath $backup)) { throw "No backup at $backup" }
+    if ((Get-Sha256 $backup) -ne $manifest.original_sha256) { throw 'The backup does not match the original SHA-256.' }
     Copy-Item -LiteralPath $backup -Destination $target -Force
-    if ((Get-Sha256 $target) -ne $manifest.original_sha256) { throw 'La restauración no verificó.' }
-    Write-Host 'Original restaurado y verificado.'
+    if ((Get-Sha256 $target) -ne $manifest.original_sha256) { throw 'The restore did not verify.' }
+    Write-Host 'Original restored and verified.'
 }

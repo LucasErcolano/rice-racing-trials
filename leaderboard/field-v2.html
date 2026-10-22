@@ -1,22 +1,22 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Rice Racing · V2 field testing</title><link rel="stylesheet" href="/admin.css"><link rel="stylesheet" href="/field-v2.css"></head>
 <body class="field-page">
-<header class="top"><h1>Rice Racing · V2 field testing</h1><a href="/admin">Administración V1</a></header>
-<div class="banner">PROVISIONAL · Pruebas de campo. Sin ranking ni scoring oficial.</div>
+<header class="top"><h1>Rice Racing · V2 field testing</h1><a href="/admin">V1 Administration</a></header>
+<div class="banner">PROVISIONAL · Field testing. No ranking or official scoring.</div>
 <main>
-<form id="auth" class="row"><label>Token admin <input id="field-token" type="password" autocomplete="off" required></label>
-<button type="submit">Consultar</button><button type="button" id="clear" class="secondary">Salir y borrar</button></form>
-<p class="hint">El token se conserva sólo en memoria hasta cerrar esta página o salir. Actualización automática cada 3 segundos. VERIFIED_PROVISIONAL indica revisión manual, nunca clasificación oficial.</p>
-<p id="field-message" role="status" aria-live="polite">Ingresá el token de la instancia de pruebas.</p>
-<div class="row"><button type="button" id="refresh">Actualizar</button><button type="button" id="export">Exportar JSON con evidencia</button></div>
-<p>PENALTIES_PENDING: falta el canal penalizado. No significa cero penalizaciones. Los tiempos calculados siguen siendo provisionales y pueden requerir revisión.</p>
-<details id="manual-assign"><summary>Atribuir manualmente una vuelta UNASSIGNED</summary>
-<form id="assign-form" class="row"><label>Estación <input id="assign-station" required></label><label>ID de vuelta <input id="assign-lap" required></label>
-<label>Sesión <input id="assign-session" required></label><label>Piloto <input id="assign-pilot" required></label>
-<label>Revisor <input id="assign-reviewer" required></label><label>Motivo (mín. 10 caracteres) <input id="assign-reason" required minlength="10"></label>
-<button type="submit">Atribuir y dejar pendiente de revisión</button></form></details>
-<div class="field-table"><table class="data"><thead><tr><th>Estación</th><th>Sesión</th><th>Piloto</th><th>Circuito</th><th>Vuelta</th><th>Estado</th><th>Penalizaciones</th><th>Bruto (ms)</th><th>Previsualización (ms)</th><th>Revisión / evidencia</th><th>Acciones</th></tr></thead><tbody id="field-laps"></tbody></table></div>
+<form id="auth" class="row"><label>Admin token <input id="field-token" type="password" autocomplete="off" required></label>
+<button type="submit">Query</button><button type="button" id="clear" class="secondary">Sign out and clear</button></form>
+<p class="hint">The token is kept only in memory until you close this page or sign out. Auto-refresh every 3 seconds. VERIFIED_PROVISIONAL means manual review, never an official result.</p>
+<p id="field-message" role="status" aria-live="polite">Enter the token for the test instance.</p>
+<div class="row"><button type="button" id="refresh">Refresh</button><button type="button" id="export">Export JSON with evidence</button></div>
+<p>PENALTIES_PENDING: the penalty channel is missing. It does not mean zero penalties. Calculated times remain provisional and may require review.</p>
+<details id="manual-assign"><summary>Manually attribute an UNASSIGNED lap</summary>
+<form id="assign-form" class="row"><label>Station <input id="assign-station" required></label><label>Lap ID <input id="assign-lap" required></label>
+<label>Session <input id="assign-session" required></label><label>Driver <input id="assign-pilot" required></label>
+<label>Reviewer <input id="assign-reviewer" required></label><label>Reason (min. 10 characters) <input id="assign-reason" required minlength="10"></label>
+<button type="submit">Attribute and leave Pending Review</button></form></details>
+<div class="field-table"><table class="data"><thead><tr><th>Station</th><th>Session</th><th>Driver</th><th>Track</th><th>Lap</th><th>Status</th><th>Penalties</th><th>Raw (ms)</th><th>Preview (ms)</th><th>Review / evidence</th><th>Actions</th></tr></thead><tbody id="field-laps"></tbody></table></div>
 </main><script src="/field-v2.js"></script>
 </body></html>

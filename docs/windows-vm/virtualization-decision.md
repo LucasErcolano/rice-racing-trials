@@ -1,51 +1,51 @@
-# Decisión de virtualización (Windows para Assetto Corsa)
+# Virtualization decision (Windows for Assetto Corsa)
 
-Fecha: 2026-10-19. Base: `hardware-audit.md`. Estado: **decidido, no ejecutado**. Bloqueado hasta activar VT-x y VT-d en el BIOS.
+Date: 2026-10-19. Basis: `hardware-audit.md`. Status: **decided, not executed**. Blocked until VT-x and VT-d are enabled in the BIOS.
 
-## Para qué
+## Purpose
 
-Probar en Windows lo que GitHub Actions no puede: Assetto Corsa con CSP, la app Lua `RiceTrials`, el parche de `Dummy.kn5`, la pista FSAEJ y el MFT02. Instalador, DPAPI, servidor congelado, `server-admin.ps1` y tarea programada ya pasan en un runner Windows real (run `39334554771`, 32/32; ver `docs/windows-validation.md`).
+Test on Windows what GitHub Actions cannot: Assetto Corsa with CSP, the `RiceTrials` Lua app, the `Dummy.kn5` patch, the FSAEJ track and the MFT02. The installer, DPAPI, frozen server, `server-admin.ps1` and scheduled task already pass on a real Windows runner (run `39334554771`, 32/32; see `docs/windows-validation.md`).
 
-## Opciones
+## Options
 
-| | A. VM sin GPU (QXL/virtio-gpu) | B. VM KVM con la RTX 3060 por VFIO | C. PC Windows física |
+| | A. VM without GPU (QXL/virtio-gpu) | B. KVM VM with the RTX 3060 via VFIO | C. Physical Windows PC |
 |---|---|---|---|
-| Requiere | VT-x | VT-x y VT-d | otra máquina con AC |
-| Corre AC (DirectX 11) | no en la práctica: render por software | sí, con driver NVIDIA nativo | sí |
-| Efecto en el host | ninguno | la 3060 deja de estar disponible para Linux mientras esté asignada a vfio | ninguno |
-| Uso | sólo instalador y servidor (ya cubiertos por CI) | validación de cliente en juego | validación final en el rig |
+| Requires | VT-x | VT-x and VT-d | another machine with AC |
+| Runs AC (DirectX 11) | not in practice: software rendering | yes, with the native NVIDIA driver | yes |
+| Effect on the host | none | the 3060 is unavailable to Linux while assigned to vfio | none |
+| Use | installer and server only (already covered by CI) | in-game client validation | final validation on the rig |
 
-**Decisión: B.** La RTX 3060 (`02:00.0` `10de:2503` y su audio `02:00.1` `10de:228e`) pasa a la VM. La RTX 3090 (`03:00.0`) queda con el driver `nvidia` para entrenar. C sigue siendo obligatoria antes de los trials oficiales: una VM no reemplaza el volante, los pedales ni el rig.
+**Decision: B.** The RTX 3060 (`02:00.0` `10de:2503` and its audio `02:00.1` `10de:228e`) moves to the VM. The RTX 3090 (`03:00.0`) stays on the `nvidia` driver for training. C remains mandatory before the official trials: a VM does not replace the wheel, the pedals or the rig.
 
-## Configuración prevista
+## Planned configuration
 
-- **Hipervisor:** QEMU/KVM con libvirt, firmware OVMF (UEFI con Secure Boot) y `swtpm` (TPM 2.0 para Windows 11). Hoy no está instalado nada de esto (`virsh` no existe).
-- **CPU:** 8 vCPU (4 núcleos con sus hilos), fijados a núcleos físicos; quedan 2 núcleos y 4 hilos al host.
-- **RAM:** 12 GiB (quedan ~16 GiB al host). 16 GiB sólo si no se entrena a la vez.
-- **Disco:** qcow2 dinámico de **70 GB virtuales** en `/var/lib/libvirt/images`. Con 81 GB libres, aun lleno deja ~11 GB al host. No usar 120 GB: un qcow2 que crece hasta llenar `/` rompe el host.
-- **Red:** NAT de libvirt. La red Wi-Fi de visitantes no permite bridge L2. Ningún puerto de la VM se expone a la red.
-- **Acceso remoto:** por Tailscale y túnel SSH a `127.0.0.1`. Con la GPU asignada, la imagen sale por la 3060 y no por SPICE, así que hace falta una salida de video:
-  - un **enchufe dummy HDMI/DP** en la 3060 (recomendado, unos pocos dólares), o
-  - un driver de pantalla virtual en Windows,
-  - más Sunshine/Moonlight o Parsec sobre el túnel para ver y manejar.
-- **Licencias:** Windows, Steam/Assetto Corsa y CSP las aporta el usuario. Los assets JSAE y MFT02 se copian desde `assets/source/` (nunca entran a git ni a los ZIP).
+- **Hypervisor:** QEMU/KVM with libvirt, OVMF firmware (UEFI with Secure Boot) and `swtpm` (TPM 2.0 for Windows 11). None of this is installed today (`virsh` does not exist).
+- **CPU:** 8 vCPU (4 cores with their threads), pinned to physical cores; 2 cores and 4 threads remain for the host.
+- **RAM:** 12 GiB (~16 GiB left for the host). 16 GiB only if no training runs at the same time.
+- **Disk:** dynamic qcow2 of **70 GB virtual** in `/var/lib/libvirt/images`. With 81 GB free, even when full it leaves ~11 GB for the host. Do not use 120 GB: a qcow2 that grows until it fills `/` breaks the host.
+- **Network:** libvirt NAT. The visitor Wi-Fi network does not allow an L2 bridge. No VM port is exposed to the network.
+- **Remote access:** via Tailscale and an SSH tunnel to `127.0.0.1`. With the GPU assigned, the image goes out through the 3060 and not through SPICE, so a video output is needed:
+  - an **HDMI/DP dummy plug** on the 3060 (recommended, a few dollars), or
+  - a virtual display driver in Windows,
+  - plus Sunshine/Moonlight or Parsec over the tunnel to see and drive.
+- **Licenses:** Windows, Steam/Assetto Corsa and CSP are provided by the user. The JSAE and MFT02 assets are copied from `assets/source/` (they never enter git or the ZIPs).
 
-## Pasos después del BIOS (en orden, con verificación)
+## Steps after the BIOS (in order, with verification)
 
-1. **BIOS** (usuario, requiere reinicio): activar «Intel Virtualization Technology» y «Intel VT-d».
-2. **Verificar:** `grep -c vmx /proc/cpuinfo` > 0, `/dev/kvm` existe, `dmesg | grep -i dmar` muestra la tabla DMAR.
-3. **Kernel:** agregar `intel_iommu=on iommu=pt` a `GRUB_CMDLINE_LINUX_DEFAULT`, `update-grub`, reiniciar. Revisar `/sys/kernel/iommu_groups`: `02:00.0` y `02:00.1` deben estar solos en su grupo. Si comparten grupo con otro dispositivo, frenar y reevaluar (no usar el parche ACS override sin decidirlo explícitamente).
-4. **vfio:** `options vfio-pci ids=10de:2503,10de:228e` y `softdep nvidia pre: vfio-pci` en `/etc/modprobe.d/vfio.conf`, `update-initramfs -u`, reiniciar. Verificar con `lspci -nnk -s 02:00` que el driver en uso es `vfio-pci` y con `nvidia-smi` que la 3090 sigue disponible. Los IDs de la 3060 son distintos de los de la 3090, así que el binding por ID no afecta a la 3090.
-5. **Paquetes:** `qemu-kvm libvirt-daemon-system virtinst ovmf swtpm`.
-6. **VM:** crear con `virt-install` (UEFI, TPM, disco virtio de 70 GB, 12 GiB, 8 vCPU, hostdev `02:00.0` y `02:00.1`). Instalar Windows 11, driver NVIDIA, Steam, AC, CSP y luego el ZIP de cliente con `install.ps1 -Preflight` y después sin `-Preflight`.
-7. **Validación en juego:** seguir `docs/windows-validation.md` y `docs/csp-api-validation.md`.
+1. **BIOS** (user, requires a reboot): enable "Intel Virtualization Technology" and "Intel VT-d".
+2. **Verify:** `grep -c vmx /proc/cpuinfo` > 0, `/dev/kvm` exists, `dmesg | grep -i dmar` shows the DMAR table.
+3. **Kernel:** add `intel_iommu=on iommu=pt` to `GRUB_CMDLINE_LINUX_DEFAULT`, `update-grub`, reboot. Check `/sys/kernel/iommu_groups`: `02:00.0` and `02:00.1` must be alone in their group. If they share a group with another device, stop and reassess (do not use the ACS override patch without an explicit decision).
+4. **vfio:** `options vfio-pci ids=10de:2503,10de:228e` and `softdep nvidia pre: vfio-pci` in `/etc/modprobe.d/vfio.conf`, `update-initramfs -u`, reboot. Verify with `lspci -nnk -s 02:00` that the driver in use is `vfio-pci` and with `nvidia-smi` that the 3090 is still available. The 3060 IDs differ from the 3090 IDs, so binding by ID does not affect the 3090.
+5. **Packages:** `qemu-kvm libvirt-daemon-system virtinst ovmf swtpm`.
+6. **VM:** create with `virt-install` (UEFI, TPM, 70 GB virtio disk, 12 GiB, 8 vCPU, hostdev `02:00.0` and `02:00.1`). Install Windows 11, the NVIDIA driver, Steam, AC, CSP and then the client ZIP with `install.ps1 -Preflight` and afterward without `-Preflight`.
+7. **In-game validation:** follow `docs/windows-validation.md` and `docs/csp-api-validation.md`.
 
-## Reversión
+## Rollback
 
-Sacar el archivo de `/etc/modprobe.d/vfio.conf`, `update-initramfs -u` y reiniciar devuelve la 3060 al driver `nvidia`. Los parámetros `intel_iommu=on iommu=pt` pueden quedar. Desactivar VT-x/VT-d en el BIOS vuelve al estado auditado.
+Removing the file `/etc/modprobe.d/vfio.conf`, running `update-initramfs -u` and rebooting returns the 3060 to the `nvidia` driver. The `intel_iommu=on iommu=pt` parameters can stay. Disabling VT-x/VT-d in the BIOS returns to the audited state.
 
-## Riesgos
+## Risks
 
-- Mientras la 3060 esté en vfio, el barrido de checkpoints del autopilot que la usa no puede correr; entrenar en la 3090 sigue igual.
-- El host no tiene monitor: si algo sale mal en el arranque, la consola sigue disponible por `ttyS0`.
-- El rendimiento de AC en la VM no representa el del rig; sirve para validar comportamiento, no para medir FPS ni latencia del volante.
+- While the 3060 is on vfio, the autopilot checkpoint sweep that uses it cannot run; training on the 3090 is unaffected.
+- The host has no monitor: if something goes wrong at boot, the console is still available over `ttyS0`.
+- AC performance in the VM does not represent the rig; it serves to validate behavior, not to measure FPS or wheel latency.

@@ -1,76 +1,76 @@
-# Auditoría de hardware del host (solo lectura)
+# Host hardware audit (read-only)
 
-Fecha: 2026-10-19. Host: servidor Ubuntu de Lucas, kernel 6.8.0-139-generic. Ningún comando de esta auditoría modificó el sistema.
+Date: 2026-10-19. Host: Lucas's Ubuntu server, kernel 6.8.0-139-generic. No command in this audit modified the system.
 
 ## CPU
 
-| Dato | Valor | Fuente |
+| Item | Value | Source |
 |---|---|---|
-| Modelo | Intel Core i7-5930K @ 3.50 GHz (Haswell-E) | `lscpu` |
-| Núcleos / hilos | 6 / 12, 1 socket | `lscpu` |
-| VT-x | **Desactivado en BIOS** | `dmesg`: `x86/cpu: VMX (outside TXT) disabled by BIOS`; 0 CPUs con flag `vmx` |
-| `/dev/kvm` | **No existe** | `ls /dev/kvm` |
-| VT-d | **Inactivo**: sin tabla DMAR activa, 0 grupos IOMMU | `/sys/kernel/iommu_groups` vacío |
-| Virtualización anidada | No aplica (no hay KVM) | |
+| Model | Intel Core i7-5930K @ 3.50 GHz (Haswell-E) | `lscpu` |
+| Cores / threads | 6 / 12, 1 socket | `lscpu` |
+| VT-x | **Disabled in BIOS** | `dmesg`: `x86/cpu: VMX (outside TXT) disabled by BIOS`; 0 CPUs with the `vmx` flag |
+| `/dev/kvm` | **Does not exist** | `ls /dev/kvm` |
+| VT-d | **Inactive**: no active DMAR table, 0 IOMMU groups | `/sys/kernel/iommu_groups` empty |
+| Nested virtualization | Not applicable (no KVM) | |
 
-El procesador soporta VT-x y VT-d (X99, Haswell-E). Los dos están apagados en el firmware.
+The processor supports VT-x and VT-d (X99, Haswell-E). Both are turned off in the firmware.
 
-## Placa base
+## Motherboard
 
-Gigabyte X99-UD4P-CF, BIOS F23c (2018-06-15). Opciones relevantes del BIOS: «Intel Virtualization Technology» y «Intel VT-d» (menú *BIOS Features* / *Peripherals* según versión).
+Gigabyte X99-UD4P-CF, BIOS F23c (2018-06-15). Relevant BIOS options: "Intel Virtualization Technology" and "Intel VT-d" (menu *BIOS Features* / *Peripherals* depending on version).
 
 ## RAM
 
-31 GiB totales, ~28 GiB disponibles en reposo. Swap 8 GiB (466 MiB usados). Una VM de 12 GiB dejaría unos 16 GiB a Ubuntu; 16 GiB sería el máximo razonable si no entrena nada en paralelo.
+31 GiB total, ~28 GiB available at idle. Swap 8 GiB (466 MiB used). A 12 GiB VM would leave about 16 GiB to Ubuntu; 16 GiB would be the reasonable maximum if nothing trains in parallel.
 
-## Almacenamiento
+## Storage
 
-| Dispositivo | Tamaño | Uso |
+| Device | Size | Use |
 |---|---|---|
-| `sda` Crucial BX500 SATA SSD | 223.6 GB | único disco físico |
+| `sda` Crucial BX500 SATA SSD | 223.6 GB | only physical disk |
 | `sda1` vfat | 1 GB | `/boot/efi` |
-| `sda3` ext4 | 222.6 GB | `/`: **128 GB usados, 81 GB libres (62 %)** al 2026-10-19 |
+| `sda3` ext4 | 222.6 GB | `/`: **128 GB used, 81 GB free (62 %)** as of 2026-10-19 |
 
-No hay otro disco ni montaje externo. La auditoría original encontró 3.8 GB libres (99 %). Ese mismo día, con autorización del usuario, se liberaron unos 81 GB:
+There is no other disk or external mount. The original audit found 3.8 GB free (99 %). The same day, with the user's authorization, about 81 GB were freed:
 
-| Ruta | Liberado | Condición |
+| Path | Freed | Condition |
 |---|---|---|
-| `radar-data/sessions` | ~62 GB | borrado después de comprobar por SHA-256 que los 78 archivos son idénticos a los de la Jetson (`/mnt/DataStorage`). Hashes en `~/radar-data/SESSIONS_SHA256_VERIFIED_ON_JETSON.txt`. El SSD de la Jetson tiene ahora la única copia de las grabaciones crudas. |
-| `autopilot-work/cache/v2_230515`, `v2_train`, `all.npz` | ~13 GB | caches viejas, elegidas por el usuario |
-| Imagen y contenedor Docker `gw-eval` | ~3 GB | evaluación cerrada |
-| `~/.cache/huggingface` (`hub`, `xet`, `sam3.1`) | ~5 GB | modelos descargables; SAM 3.1 borrado a pedido del usuario |
+| `radar-data/sessions` | ~62 GB | deleted after checking by SHA-256 that the 78 files are identical to those on the Jetson (`/mnt/DataStorage`). Hashes in `~/radar-data/SESSIONS_SHA256_VERIFIED_ON_JETSON.txt`. The Jetson SSD now holds the only copy of the raw recordings. |
+| `autopilot-work/cache/v2_230515`, `v2_train`, `all.npz` | ~13 GB | old caches, chosen by the user |
+| Docker image and container `gw-eval` | ~3 GB | closed evaluation |
+| `~/.cache/huggingface` (`hub`, `xet`, `sam3.1`) | ~5 GB | downloadable models; SAM 3.1 deleted at the user's request |
 
-Quedan: `autopilot-work/prep` 39 GB (derivados, `cache/v3` depende de ellos), `autopilot-work/cache` 6.9 GB (`v3`, `v4`), `runs` 2.8 GB, Docker `rallia/noetic` 7.4 GB más 2.9 GB de build cache.
+Remaining: `autopilot-work/prep` 39 GB (derived data, `cache/v3` depends on it), `autopilot-work/cache` 6.9 GB (`v3`, `v4`), `runs` 2.8 GB, Docker `rallia/noetic` 7.4 GB plus 2.9 GB of build cache.
 
-Windows 11 con Assetto Corsa, CSP, la pista y el auto ocupa unos 50 GB; el disco virtual se dimensiona en `virtualization-decision.md`.
+Windows 11 with Assetto Corsa, CSP, the track and the car takes about 50 GB; the virtual disk is sized in `virtualization-decision.md`.
 
 ## GPU
 
 | | GPU 0 | GPU 1 |
 |---|---|---|
-| Modelo | RTX 3060 (GA106) | RTX 3090 (GA102) |
+| Model | RTX 3060 (GA106) | RTX 3090 (GA102) |
 | PCI | `02:00.0` `[10de:2503]` + audio `02:00.1` `[10de:228e]` | `03:00.0` `[10de:2204]` + audio `03:00.1` `[10de:1aef]` |
 | VRAM | 12 GB | 24 GB |
 | Driver | nvidia 580.173.02 | nvidia 580.173.02 |
-| Uso actual | ninguno (1 MiB, sin procesos) | ninguno (1 MiB, sin procesos) |
-| Display | ninguno (servidor sin monitor; consola por `ttyS0`) | ninguno |
-| Grupo IOMMU | no disponible (VT-d apagado) | no disponible |
+| Current use | none (1 MiB, no processes) | none (1 MiB, no processes) |
+| Display | none (headless server; console over `ttyS0`) | none |
+| IOMMU group | not available (VT-d off) | not available |
 
-El historial del proyecto autopilot usa las dos GPU para entrenar (la 3090 entrena, la 3060 barre checkpoints). Con VT-d activo, cada GPU expone su función de audio en el mismo slot; en X99 los slots PCIe del CPU suelen quedar en grupos separados, pero no se puede confirmar hasta ver los grupos reales.
+The autopilot project history uses both GPUs for training (the 3090 trains, the 3060 sweeps checkpoints). With VT-d enabled, each GPU exposes its audio function on the same slot; on X99 the CPU PCIe slots usually land in separate groups, but this cannot be confirmed until the real groups are visible.
 
-## Conectividad
+## Connectivity
 
-| Dato | Valor |
+| Item | Value |
 |---|---|
-| SSH | `ssh.service` activo, puerto 22 |
-| Red principal | Wi-Fi USB `wlx28ee520a55b6`, SSID «Rice Visitor», 168.4.186.58/18 |
-| Tailscale | `tailscale0` 100.72.129.18 (acceso remoto del usuario) |
-| Ethernet `eno1` | sin cable (no carrier) |
-| Firewall | UFW inactivo |
+| SSH | `ssh.service` active, port 22 |
+| Main network | USB Wi-Fi `wlx28ee520a55b6`, SSID "Rice Visitor", 168.4.186.58/18 |
+| Tailscale | `tailscale0` 100.72.129.18 (user's remote access) |
+| Ethernet `eno1` | no cable (no carrier) |
+| Firewall | UFW inactive |
 | Internet | OK |
 
-Una red de visitantes por Wi-Fi no permite bridge L2: una VM usaría NAT de libvirt, con acceso remoto por Tailscale + túnel SSH hacia SPICE/VNC en `127.0.0.1`. Nunca expuesto a la red.
+A visitor Wi-Fi network does not allow an L2 bridge: a VM would use libvirt NAT, with remote access via Tailscale + an SSH tunnel to SPICE/VNC on `127.0.0.1`. Never exposed to the network.
 
-## Conclusión
+## Conclusion
 
-Sin VT-x no hay KVM. Sin KVM, Windows 11 solo correría emulado por software (QEMU TCG): decenas de veces más lento, sin GPU y sin posibilidad de correr Assetto Corsa. Ninguna opción de VM (A o B) es viable hasta habilitar VT-x (y VT-d para passthrough) en el BIOS, lo que requiere al usuario y un reinicio del host. Ver `virtualization-decision.md`.
+Without VT-x there is no KVM. Without KVM, Windows 11 would only run under software emulation (QEMU TCG): dozens of times slower, with no GPU and no way to run Assetto Corsa. No VM option (A or B) is viable until VT-x (and VT-d for passthrough) is enabled in the BIOS, which requires the user and a host reboot. See `virtualization-decision.md`.

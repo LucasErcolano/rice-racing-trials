@@ -1,45 +1,45 @@
-# Candidatos de conos (cone-boxes-v1)
+# Cone candidates (cone-boxes-v1)
 
-Detección geométrica **asesora**. Un contacto es un *candidato* para el revisor, nunca una penalidad oficial.
+**Advisory** geometric detection. A contact is a *candidate* for the reviewer, never an official penalty.
 
-- Caja orientada del auto (collider MFT02: 1,41 x 3,0 m) reducida `shrink_m` por lado (default 0,15 m) contra el
-  centro de cada cono (radio 0,125 m, penetración mínima 0,03 m). Se interpola cada 0,1 m entre frames, así que
-  no atraviesa conos a alta velocidad; un salto mayor a 20 m (reset/teleport) no barre la pista.
-- Solo cuenta con la vuelta cronometrada en curso (se descarta la outlap y se reinicia con cada reset de ruta).
-  Cada cono cuenta una vez por vuelta.
-- Sale en `payload.detector` (`cone_source=geometric_candidate_uncertified`, `cone_candidates`, `cone_candidate_count`,
-  `cone_shrink_m`) y se ve en /admin. `events` queda `{}`: no hay penalidades automáticas.
-- 730 centros de cono salen de los clusters del KN5 (candidatos no confirmados; algunos pueden ser pilones de pits o decorativos).
+- Oriented car box (MFT02 collider: 1.41 x 3.0 m) shrunk by `shrink_m` per side (default 0.15 m) against the
+  center of each cone (radius 0.125 m, minimum penetration 0.03 m). It interpolates every 0.1 m between frames, so
+  it does not pass through cones at high speed; a jump larger than 20 m (reset/teleport) does not sweep the track.
+- Only counts during the timed lap in progress (the out lap is discarded and it restarts on every route reset).
+  Each cone counts once per lap.
+- Reported in `payload.detector` (`cone_source=geometric_candidate_uncertified`, `cone_candidates`, `cone_candidate_count`,
+  `cone_shrink_m`) and visible in /admin. `events` stays `{}`: there are no automatic penalties.
+- 730 cone centers come from the KN5 clusters (unconfirmed candidates; some may be pit or decorative pylons).
 
-## Generar e instalar
+## Generate and install
 ```
 python3 track/tool.py export-cones --geometry dist/track-calibration/geometry/FSAEJ_Endurance.geometry.json \
     --output dist/track-calibration/route/cone_config.lua [--shrink 0.15]
 .\install.ps1 ... -RouteConfig route_config.lua -ConeConfig cone_config.lua
 ```
-Sin `cone_config.lua` el cliente se comporta como antes. Para desactivarlo en una estación, borrar ese archivo.
+Without `cone_config.lua` the client behaves as before. To disable it on a station, delete that file.
 
-## Calibración pendiente (requiere conducción real)
-`shrink_m` es una heurística. Falta: conducir una vuelta limpia (esperado 0 candidatos) y otra tocando conos
-a propósito, y ajustar `--shrink` o `--min-depth` según el resultado. Hasta entonces el valor es **no verificado en juego**.
+## Pending calibration (requires real driving)
+`shrink_m` is a heuristic. Still to do: drive a clean lap (0 candidates expected) and another touching cones
+on purpose, then adjust `--shrink` or `--min-depth` based on the result. Until then the value is **not verified in game**.
 
-## Penalizaciones automáticas (off-course y slalom, `auto_penalties = true`)
+## Automatic penalties (off-course and slalom, `auto_penalties = true`)
 
-`export-cones` ahora emite en `cone_config.lua` tres detectores geométricos. Con `auto_penalties = true` llenan `events` de una vuelta `PENDING_REVIEW` (claves `cone`, `off_course`, `slalom`). Nunca se vuelve oficial sola: el scoring sigue desarmado y el admin puede editar cada conteo. `--no-auto` los deja solo como candidatos en `payload.detector`.
+`export-cones` now emits three geometric detectors in `cone_config.lua`. With `auto_penalties = true` they fill `events` of a `PENDING_REVIEW` lap (keys `cone`, `off_course`, `slalom`). A lap never becomes official on its own: scoring stays disarmed and the admin can edit each count. `--no-auto` leaves them only as candidates in `payload.detector`.
 
-| Detector | Regla | Tolerancia (por defecto) |
+| Detector | Rule | Tolerance (default) |
 |---|---|---|
-| Conos | caja del auto reducida 0,15 m por lado contra el cono | penetración ≥ 0,03 m; máx. 25 por vuelta |
-| Off-course | las 4 ruedas fuera del anillo de asfalto (`IS_VALID_TRACK`) | margen 0,30 m más allá del borde, 0,15 s sostenido; un evento por salida, rearmado tras 0,5 s adentro |
-| Slalom | cruce de cada compuerta (perpendicular a la marcha, por el pilón) del lado esperado por la línea AI de referencia | una infracción por compuerta; `half_m` 5,5 m |
+| Cones | car box shrunk 0.15 m per side against the cone | penetration >= 0.03 m; max. 25 per lap |
+| Off-course | all 4 wheels outside the asphalt ring (`IS_VALID_TRACK`) | 0.30 m margin beyond the edge, sustained 0.15 s; one event per excursion, re-armed after 0.5 s back inside |
+| Slalom | crossing of each gate (perpendicular to travel, through the pylon) on the side expected from the reference AI line | one infraction per gate; `half_m` 5.5 m |
 
-Reglas anti falsos positivos:
-- Conos que la propia línea AI atraviesa (21 en FSAEJ, pilones de boxes y salida) quedan como candidato, no suman a `events.cone`.
-- Un detector sin configurar omite su clave: nunca se informa 0 por "no sé".
-- Una pasada de slalom con compuertas sin cruzar es *incompleta*: se reporta en `detector.slalom_incomplete` y no se penaliza.
-- Dato inválido, `dt` fuera de rango o frame sin orientación devuelve `unknown`. Sin `look` se usa la dirección de marcha.
-- Solo cuenta con la vuelta cronometrada en curso; la outlap se descarta.
+Rules against false positives:
+- Cones that the AI line itself passes through (21 in FSAEJ, pit and start pylons) stay as candidates and do not add to `events.cone`.
+- An unconfigured detector omits its key: 0 is never reported for "unknown".
+- A slalom pass with uncrossed gates is *incomplete*: it is reported in `detector.slalom_incomplete` and not penalized.
+- Invalid data, `dt` out of range or a frame without orientation returns `unknown`. Without `look` the direction of travel is used.
+- Only counts during the timed lap in progress; the out lap is discarded.
 
-Slalom en FSAEJ_Endurance: se detectaron 2 pasadas de 4 y 5 pilones (S1 cerca de x 56..84; S2 en x -21..15). Una tercera (x -103..-75) se descartó porque la línea AI casi la atraviesa (confianza 0,13 m): requiere revisión manual.
+Slalom on FSAEJ_Endurance: 2 passes of 4 and 5 pylons were detected (S1 near x 56..84; S2 at x -21..15). A third one (x -103..-75) was discarded because the AI line nearly passes through it (0.13 m confidence): it needs manual review.
 
-**Sin certificar**: todo se calibró en simulación con la línea AI, no con manejo real. Hay que validar con una vuelta limpia (esperado 0 off-course, 0 slalom, ~2 conos) y otra con infracciones deliberadas.
+**Uncertified**: everything was calibrated in simulation with the AI line, not with real driving. It must be validated with a clean lap (expected 0 off-course, 0 slalom, ~2 cones) and another with deliberate infractions.

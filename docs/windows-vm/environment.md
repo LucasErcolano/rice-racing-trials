@@ -1,41 +1,41 @@
-# VM Windows 11 de pruebas (`rice-win11`)
+# Windows 11 test VM (`rice-win11`)
 
-Estado: **operativa** desde 2026-10-20. Decisión y alternativas: `virtualization-decision.md`. Auditoría del host: `hardware-audit.md`.
+Status: **operational** since 2026-10-20. Decision and alternatives: `virtualization-decision.md`. Host audit: `hardware-audit.md`.
 
-## Qué es
+## What it is
 
 | | |
 |---|---|
-| Host | Ubuntu Server (Gigabyte X99-UD4P, i7-5820K), QEMU/KVM + libvirt, OVMF con Secure Boot, TPM 2.0 por `swtpm` |
-| VM | Windows 11 Pro (build 26300), **sin activar** (ISO oficial de Microsoft verificada por SHA-256) |
-| CPU / RAM / disco | 8 vCPU fijados a los núcleos físicos 2 a 5 con sus hilos; 12 GiB; qcow2 de 60 GB |
-| GPU | **RTX 3060 por VFIO**: Windows la ve con el driver NVIDIA 32.0.16.1088, estado OK. La RTX 3090 sigue en el host con el driver `nvidia`. Salida de video: la TV conectada por HDMI a la 3060. |
-| Red | NAT de libvirt (`192.168.122.0/24`), sin puertos expuestos fuera del host |
-| Acceso | OpenSSH de Windows sólo con clave (`riceadmin`); la contraseña de la cuenta local no se usa por red |
+| Host | Ubuntu Server (Gigabyte X99-UD4P, i7-5820K), QEMU/KVM + libvirt, OVMF with Secure Boot, TPM 2.0 via `swtpm` |
+| VM | Windows 11 Pro (build 26300), **not activated** (official Microsoft ISO verified by SHA-256) |
+| CPU / RAM / disk | 8 vCPU pinned to physical cores 2 to 5 with their threads; 12 GiB; 60 GB qcow2 |
+| GPU | **RTX 3060 via VFIO**: Windows sees it with NVIDIA driver 32.0.16.1088, status OK. The RTX 3090 stays on the host with the `nvidia` driver. Video output: the TV connected over HDMI to the 3060. |
+| Network | libvirt NAT (`192.168.122.0/24`), no ports exposed outside the host |
+| Access | Windows OpenSSH with key only (`riceadmin`); the local account password is not used over the network |
 | Toolchain | Python 3.12, `lupa` 2.8 (LuaJIT 2.1), PyInstaller |
 
-Los scripts del host están en `/home/lucas/vm/rice-win11/` y no entran al repo porque contienen la clave SSH y la contraseña local:
+The host scripts live in `/home/lucas/vm/rice-win11/` and are kept out of the repo because they contain the SSH key and the local password:
 
-- `create-vm.sh`: crea la VM y aborta si la 3060 no está en `vfio-pci`, si la 3090 no está en `nvidia`, si el grupo IOMMU no es exactamente la 3060 con su audio, si el hash de la ISO no coincide o si no queda disco suficiente para el host.
-- `vmssh`: corre PowerShell en la VM por SSH.
-- `sync-repo`: copia el repo (archivos versionados y no ignorados) a `C:\rr\src`.
-- `jobs/*.ps1`: tests, build, E2E, simulador y sesión interactiva (`run-interactive.ps1` usa una tarea programada para correr dentro del escritorio de `riceadmin`, porque el E2E de instalación necesita ese token).
+- `create-vm.sh`: creates the VM and aborts if the 3060 is not on `vfio-pci`, if the 3090 is not on `nvidia`, if the IOMMU group is not exactly the 3060 with its audio, if the ISO hash does not match, or if not enough disk would remain for the host.
+- `vmssh`: runs PowerShell in the VM over SSH.
+- `sync-repo`: copies the repo (versioned and non-ignored files) to `C:\rr\src`.
+- `jobs/*.ps1`: tests, build, E2E, simulator and interactive session (`run-interactive.ps1` uses a scheduled task to run inside the `riceadmin` desktop, because the installation E2E needs that token).
 
-## Qué se validó en la VM
+## What was validated in the VM
 
-Evidencia de **Windows real**. La carpeta de Assetto Corsa fue falsa y CSP simulado para las
-suites, el build y el E2E de instalación; la validación dentro del juego (última línea) es AC y
-CSP reales:
+Evidence from **real Windows**. The Assetto Corsa folder was fake and CSP was simulated for the
+suites, the build and the installation E2E; the in-game validation (last item) uses real AC and
+CSP:
 
-- Suites del repo: 88 OK (9 omitidas por herramientas de Linux o del navegador) y 104 del cliente.
-- Build con PyInstaller y los tres ZIP (`SHA256SUMS.txt` en `docs/evidence/csp-mock/`).
-- E2E de instalación (`tests/windows/e2e-windows.ps1`) en la sesión interactiva: 33 OK. Evidencia en `docs/evidence/windows-vm/e2e-interactive/`.
-- Escenarios MOCK de CSP con el servidor en proceso y contra el `RiceTrialsServer.exe` compilado: ver `docs/csp-mock.md` y `docs/evidence/csp-mock/`.
-- **Dentro del juego (AC + CSP 0.2.11 reales, pista FSAEJ y auto MFT02 instalados)**: el cliente carga por CSP y llega al servidor (autentica, recibe la asignación ST01/S1/P01 y late con `online:true`). Prueba: `docs/evidence/windows-vm/ingame-validation.md`.
+- Repo suites: 88 OK (9 skipped for Linux or browser tooling) and 104 client tests.
+- PyInstaller build and the three ZIPs (`SHA256SUMS.txt` in `docs/evidence/csp-mock/`).
+- Installation E2E (`tests/windows/e2e-windows.ps1`) in the interactive session: 33 OK. Evidence in `docs/evidence/windows-vm/e2e-interactive/`.
+- CSP MOCK scenarios with the in-process server and against the compiled `RiceTrialsServer.exe`: see `docs/csp-mock.md` and `docs/evidence/csp-mock/`.
+- **In game (real AC + CSP 0.2.11, FSAEJ track and MFT02 car installed)**: the client loads through CSP and reaches the server (authenticates, receives the ST01/S1/P01 assignment and sends heartbeats with `online:true`). Proof: `docs/evidence/windows-vm/ingame-validation.md`.
 
-## Qué falta
+## What is missing
 
-- Confirmar en pista `io.save`/`io.load`, el HUD, `ac.onCarJumped`/`resetCounter`, el
-  cronometraje y la detección de vuelta (requiere manejar de verdad; el scoring sigue desarmado).
-- La VM no reemplaza al rig: el volante, los pedales y la validación final se hacen en la
-  estación real. La checklist sigue siendo `docs/windows-validation.md`.
+- Confirm on track `io.save`/`io.load`, the HUD, `ac.onCarJumped`/`resetCounter`,
+  timing and lap detection (requires real driving; scoring is still disarmed).
+- The VM does not replace the rig: the wheel, the pedals and the final validation happen at the
+  real station. The checklist is still `docs/windows-validation.md`.

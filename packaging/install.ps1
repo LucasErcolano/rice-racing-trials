@@ -1,19 +1,19 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  Instala sólo la app Lua de CSP "RiceTrials" en <AC>\apps\lua\RiceTrials. Nunca copia ni modifica
-  archivos del juego, de CSP, de la pista ni del auto (se inspeccionan, no se escriben).
+  Installs only the CSP Lua app "RiceTrials" into <AC>\apps\lua\RiceTrials. Never copies or modifies
+  game, CSP, track or car files (they are inspected, never written).
 .DESCRIPTION
-  1. Detecta Assetto Corsa: -AssettoRoot, o registro de Steam (Steam App 244210, SteamPath +
-     libraryfolders.vdf), o rutas típicas.
-  2. Identifica CSP: dwrite.dll (cargador) + extension\config\data_manifest.ini ([VERSION] SHADERS_PATCH).
-  3. Verifica madformulateam_mft02 y FSAEJ_Endurance (y FSAEJ_Skidpad) instalados y detecta versiones
-     (ui_car.json / ui_track.json si existen). Opcional: SHA-256 de los archivos originales descargados.
-  4. -Preflight: no escribe nada. Sin -Preflight: staging, token con Read-Host -AsSecureString
-     (nunca por línea de comandos), station_config.lua con ACL restringida, backup y rollback.
-  5. -Rollback <carpeta de backup>: restaura una versión anterior de la app (guarda la actual antes).
-  El HUD no se abre solo: CSP no documenta un flag de manifest para abrir la ventana al cargar
-  (ver docs/deployment.md, paso manual en la barra de apps).
+  1. Detects Assetto Corsa: -AssettoRoot, or the Steam registry (Steam App 244210, SteamPath +
+     libraryfolders.vdf), or typical paths.
+  2. Identifies CSP: dwrite.dll (loader) + extension\config\data_manifest.ini ([VERSION] SHADERS_PATCH).
+  3. Checks that madformulateam_mft02 and FSAEJ_Endurance (and FSAEJ_Skidpad) are installed and detects
+     versions (ui_car.json / ui_track.json when present). Optional: SHA-256 of the original downloaded archives.
+  4. -Preflight: writes nothing. Without -Preflight: staging, token via Read-Host -AsSecureString
+     (never on the command line), station_config.lua with a restricted ACL, backup and rollback.
+  5. -Rollback <backup folder>: restores a previous app version (saves the current one first).
+  The HUD does not open by itself: CSP documents no manifest flag to open the window on load
+  (see docs/deployment.md, manual step in the apps bar).
 #>
 param(
     [string]$AssettoRoot,
@@ -60,7 +60,7 @@ function Warn([string]$name, [string]$detail) {
 function Save-Report {
     if ($ReportPath) {
         $script:report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ReportPath -Encoding UTF8
-        Write-Host "Informe: $ReportPath"
+        Write-Host "Report: $ReportPath"
     }
 }
 function Read-IniValue([string]$path, [string]$section, [string]$key) {
@@ -132,14 +132,14 @@ function Assert-InstalledAsset($label, $folder, $id, $kind) {
         if ($models.Count -eq 0) { throw "$label installed ID $id has no root KN5 model" }
         $version = Read-JsonVersion (P $folder @('ui', 'ui_track.json'))
         $dummy = P $folder @('Dummy.kn5')
-        $dummyHash = if (Test-Path -LiteralPath $dummy -PathType Leaf) { (Get-FileHash -LiteralPath $dummy -Algorithm SHA256).Hash.ToLower() } else { 'ausente' }
-        Pass "$label installed ID" "$id (KN5 en raíz: $($models.Count); versión ui_track.json: $(if ($version) { $version } else { 'no declarada' }); Dummy.kn5 SHA-256: $dummyHash)"
+        $dummyHash = if (Test-Path -LiteralPath $dummy -PathType Leaf) { (Get-FileHash -LiteralPath $dummy -Algorithm SHA256).Hash.ToLower() } else { 'absent' }
+        Pass "$label installed ID" "$id (root KN5 models: $($models.Count); ui_track.json version: $(if ($version) { $version } else { 'not declared' }); Dummy.kn5 SHA-256: $dummyHash)"
     } else {
         $acd = Test-Path -LiteralPath (P $folder @('data.acd')) -PathType Leaf
         $unpacked = Test-Path -LiteralPath (P $folder @('data', 'car.ini')) -PathType Leaf
         if (-not ($acd -or $unpacked)) { throw "$label installed ID $id has neither data.acd nor data\car.ini" }
         $version = Read-JsonVersion (P $folder @('ui', 'ui_car.json'))
-        Pass "$label installed ID" "$id (datos: $(if ($acd) { 'data.acd' } else { 'data\car.ini' }); versión ui_car.json: $(if ($version) { $version } else { 'no declarada' }))"
+        Pass "$label installed ID" "$id (data: $(if ($acd) { 'data.acd' } else { 'data\car.ini' }); ui_car.json version: $(if ($version) { $version } else { 'not declared' }))"
     }
 }
 function Test-PrivateHost([string]$hostName) {
@@ -163,7 +163,7 @@ function ConvertTo-LuaByteString([string]$value) {
     return '"' + $encoded + '"'
 }
 function Protect-StationConfig([string]$path) {
-    if (-not $onWindows) { Warn 'ACL' "no es Windows: ACL no aplicada a $path (sólo arnés de pruebas)"; return }
+    if (-not $onWindows) { Warn 'ACL' "not Windows: ACL not applied to $path (test harness only)"; return }
     $acl = Get-Acl -LiteralPath $path
     $acl.SetAccessRuleProtection($true, $false)
     $user = [Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -175,7 +175,7 @@ function Protect-StationConfig([string]$path) {
     Set-Acl -LiteralPath $path -AclObject $acl -ErrorAction Stop
 }
 function Protect-StagingDirectory([string]$path) {
-    if (-not $onWindows) { Warn 'ACL' "no es Windows: ACL no aplicada a $path (sólo arnés de pruebas)"; return }
+    if (-not $onWindows) { Warn 'ACL' "not Windows: ACL not applied to $path (test harness only)"; return }
     $acl = Get-Acl -LiteralPath $path
     $acl.SetAccessRuleProtection($true, $false)
     $user = [Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -192,7 +192,7 @@ function Write-Receipt([string]$folder) {
     $files = @(Get-ChildItem -LiteralPath $folder -File | Where-Object { $_.Name -ne 'install-receipt.json' } | ForEach-Object {
         [ordered]@{ name = $_.Name; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower() } })
     $receipt = [ordered]@{ product = 'RiceTrials'; installed_utc = (Get-Date).ToUniversalTime().ToString('o'); files = $files;
-                           note = 'station_config.lua contiene una credencial: no copiar este directorio fuera del equipo.' }
+                           note = 'station_config.lua contains a credential: do not copy this folder off this machine.' }
     $receipt | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (P $folder @('install-receipt.json')) -Encoding UTF8
 }
 
@@ -200,7 +200,7 @@ function Write-Receipt([string]$folder) {
 if (-not $AssettoRoot) {
     $AssettoRoot = Find-AssettoRoot
     if (-not $AssettoRoot) { throw 'AC root not found (Steam registry, libraryfolders.vdf, typical paths); pass -AssettoRoot' }
-    Pass 'AC detectado' $AssettoRoot
+    Pass 'AC detected' $AssettoRoot
 }
 if (-not (Test-Path -LiteralPath $AssettoRoot -PathType Container)) { throw "AC root missing: $AssettoRoot" }
 $AssettoRoot = (Resolve-Path -LiteralPath $AssettoRoot).Path
@@ -208,8 +208,8 @@ $report.assetto_root = $AssettoRoot
 $exe = P $AssettoRoot @('AssettoCorsa.exe')
 if (Test-Path -LiteralPath $exe -PathType Leaf) {
     $acVersion = (Get-Item -LiteralPath $exe).VersionInfo.FileVersion
-    Pass 'AssettoCorsa.exe' "versión de archivo: $(if ($acVersion) { $acVersion } else { 'no declarada' })"
-} else { Warn 'AssettoCorsa.exe' 'no encontrado en la raíz indicada' }
+    Pass 'AssettoCorsa.exe' "file version: $(if ($acVersion) { $acVersion } else { 'not declared' })"
+} else { Warn 'AssettoCorsa.exe' 'not found in the given root' }
 $apps = P $AssettoRoot @('apps', 'lua')
 $target = P $apps @('RiceTrials')
 
@@ -218,7 +218,7 @@ if ($Rollback) {
     $rollbackRoot = Assert-OutsideAppFolder $Rollback $apps 'Rollback source'
     if (-not $BackupDirectory) { throw 'Rollback requires -BackupDirectory to preserve the current app first' }
     $backupRoot = Assert-OutsideAppFolder $BackupDirectory $apps 'BackupDirectory'
-    if ($Preflight) { Pass 'rollback preflight' "restauraría $rollbackRoot en $target"; Save-Report; return }
+    if ($Preflight) { Pass 'rollback preflight' "would restore $rollbackRoot to $target"; Save-Report; return }
     $saved = $null
     if (Test-Path -LiteralPath $target) {
         $saved = P $backupRoot @('RiceTrials-before-rollback-' + (Get-Date -Format 'yyyyMMddTHHmmss') + '-' + [guid]::NewGuid().ToString('N'))
@@ -235,7 +235,7 @@ if ($Rollback) {
         if ($saved) { Move-Item -LiteralPath $saved -Destination $target }
         throw "Rollback failed; previous app restored: $_"
     }
-    Write-Host "Rollback OK: $target <- $rollbackRoot$(if ($saved) { "; app anterior guardada en $saved" })"
+    Write-Host "Rollback OK: $target <- $rollbackRoot$(if ($saved) { "; previous app saved to $saved" })"
     return
 }
 
@@ -248,7 +248,7 @@ $serverUri = [Uri]$ServerUrl
 if ($serverUri.Port -lt 1 -or $serverUri.Port -gt 65535) { throw 'Invalid server port' }
 if ($serverUri.Scheme -ne 'https' -and $serverUri.Host -notin @('127.0.0.1','localhost')) {
     if (-not ($AllowPlainHttpLan -and (Test-PrivateHost $serverUri.Host))) { throw 'Non-loopback server requires HTTPS (or -AllowPlainHttpLan with a private IPv4 address)' }
-    Warn 'HTTP en LAN' "el token viaja sin cifrar dentro de la red privada hacia $($serverUri.Host)"
+    Warn 'HTTP on LAN' "the token travels unencrypted inside the private network to $($serverUri.Host)"
 }
 foreach ($name in @('RiceTrials.lua','core.lua','manifest.ini')) {
     if (-not (Test-Path -LiteralPath (P $source @($name)) -PathType Leaf)) { throw "Client package missing $name" }
@@ -259,8 +259,8 @@ $cspManifest = P $AssettoRoot @('extension', 'config', 'data_manifest.ini')
 $cspVersion = Read-IniValue $cspManifest 'VERSION' 'SHADERS_PATCH'
 $cspBuild = Read-IniValue $cspManifest 'VERSION' 'SHADERS_PATCH_BUILD'
 if (-not (Test-Path -LiteralPath (P $AssettoRoot @('extension', 'config')) -PathType Container)) { throw 'CSP extension\config folder missing (dwrite.dll alone is not CSP)' }
-if ($cspVersion) { Pass 'CSP' "dwrite.dll + extension\config; versión $cspVersion (build $cspBuild)" }
-else { Warn 'CSP' 'dwrite.dll + extension\config presentes; versión no legible en extension\config\data_manifest.ini' }
+if ($cspVersion) { Pass 'CSP' "dwrite.dll + extension\config; version $cspVersion (build $cspBuild)" }
+else { Warn 'CSP' 'dwrite.dll + extension\config present; version not readable from extension\config\data_manifest.ini' }
 $report.csp = [ordered]@{ version = $cspVersion; build = $cspBuild }
 
 if (-not $SkipArchiveHashes) {
@@ -270,23 +270,23 @@ if (-not $SkipArchiveHashes) {
     Assert-ArchiveHash 'Endurance' $EnduranceZip $EnduranceSha256
     Assert-ArchiveHash 'MFT02' $CarArchive $CarSha256
     if ($SkidpadZip -or $SkidpadSha256) { Assert-ArchiveHash 'Skidpad' $SkidpadZip $SkidpadSha256 }
-} else { Warn 'hashes de archivos' 'omitidos por -SkipArchiveHashes: no hay evidencia del origen de los mods instalados' }
+} else { Warn 'archive hashes' 'skipped by -SkipArchiveHashes: no evidence of where the installed mods came from' }
 Assert-InstalledAsset 'Endurance' (P $AssettoRoot @('content', 'tracks', 'FSAEJ_Endurance')) 'FSAEJ_Endurance' 'track'
 $skid = P $AssettoRoot @('content', 'tracks', 'FSAEJ_Skidpad')
 if ($RequireSkidpad -or (Test-Path -LiteralPath $skid)) { Assert-InstalledAsset 'Skidpad' $skid 'FSAEJ_Skidpad' 'track' }
-else { Warn 'Skidpad' 'FSAEJ_Skidpad no instalado (use -RequireSkidpad para exigirlo)' }
+else { Warn 'Skidpad' 'FSAEJ_Skidpad not installed (use -RequireSkidpad to require it)' }
 Assert-InstalledAsset 'MFT02' (P $AssettoRoot @('content', 'cars', $CarId)) $CarId 'car'
 if ($RouteConfig) {
     if (-not (Test-Path -LiteralPath $RouteConfig -PathType Leaf) -or (Split-Path -Leaf $RouteConfig) -notlike '*.lua') { throw "RouteConfig must be an existing .lua file: $RouteConfig" }
     $routeText = [IO.File]::ReadAllText($RouteConfig)
     if ($routeText -notmatch '(?m)^\s*verified\s*=\s*(true|false)\s*,') { throw 'RouteConfig lacks an explicit verified=true/false (generate it with track/tool.py export-route)' }
-    if ($Matches[1] -eq 'true') { Pass 'route_config' 'verified=true (aprobada por operador)' }
-    else { Warn 'route_config' 'verified=false: el cliente no arma la ruta (sólo diagnóstico)' }
+    if ($Matches[1] -eq 'true') { Pass 'route_config' 'verified=true (approved by operator)' }
+    else { Warn 'route_config' 'verified=false: the client does not arm the route (diagnostics only)' }
 }
 if ($ConeConfig) {
     if (-not (Test-Path -LiteralPath $ConeConfig -PathType Leaf) -or (Split-Path -Leaf $ConeConfig) -notlike '*.lua') { throw "ConeConfig must be an existing .lua file: $ConeConfig" }
     if ([IO.File]::ReadAllText($ConeConfig) -notmatch "version\s*=\s*'cone-boxes-v1'") { throw 'ConeConfig is not cone-boxes-v1 (generate it with track/tool.py export-cones)' }
-    Warn 'cone_config' 'candidatos geometricos de conos: ayuda al revisor, NUNCA son penalidades oficiales'
+    Warn 'cone_config' 'geometric cone candidates: a reviewer aid, NEVER official penalties'
 }
 $existing = Test-Path -LiteralPath $target
 if ($existing -and -not $BackupDirectory) { throw "Existing CSP app at $target; specify -BackupDirectory for a reversible upgrade." }
@@ -351,4 +351,4 @@ try {
 if ($oldMoved) { Write-Host "Previous app backed up to $backup (rollback: install.ps1 -Rollback '$backup' -BackupDirectory <dir>)" }
 Save-Report
 Write-Host "Installed CSP Lua app to $target; enable and validate in CSP. No external assets changed."
-Write-Host 'Paso manual: en AC abrir la barra de apps (borde derecho) y activar "Rice Trials" (CSP no documenta apertura automática).'
+Write-Host 'Manual step: in AC open the apps bar (right edge) and enable "Rice Trials" (CSP documents no automatic opening).'

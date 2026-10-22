@@ -83,7 +83,7 @@ class AppNativeOverlay(unittest.TestCase):
         script = lua.globals().script
         script.update(.1)
         script.windowNative(.2)
-        self.assertEqual(lines(lua), ['Overlay nativo no disponible'])
+        self.assertEqual(lines(lua), ['Native overlay not available'])
         self.assertFalse(script.overlayEnabled())
 
     def test_window_native_survives_broken_renderer(self):
@@ -97,7 +97,7 @@ class AppNativeOverlay(unittest.TestCase):
         script = lua.globals().script
         script.update(.1)
         script.windowNative(.2)
-        self.assertEqual(lines(lua), ['Overlay nativo no disponible'])
+        self.assertEqual(lines(lua), ['Native overlay not available'])
         self.assertFalse(script.overlayEnabled())
 
     def test_window_native_degrades_when_model_builder_fails(self):
@@ -106,7 +106,7 @@ class AppNativeOverlay(unittest.TestCase):
         self._ac_ui()
         self.lua.execute("package.loaded['native_overlay'].timing = function() error('broken model') end")
         self.lua.globals().script.windowNative(.2)
-        self.assertEqual(self.fallback, ['Overlay nativo no disponible'])
+        self.assertEqual(self.fallback, ['Native overlay not available'])
         self.assertNotIn('acText', [c[0] for c in self.calls])  # nothing half-drawn
 
     def test_overlay_disabled_by_config(self):
@@ -241,7 +241,7 @@ class AppNativeOverlay(unittest.TestCase):
         last = after[after.index('LAST') + 1]
         classic = '\n'.join(self._classic())
         # Same corrected time as the V2 window (raw + penalty), formatted identically.
-        self.assertIn('ULTIMA  ' + last, classic)
+        self.assertIn('LAST    ' + last, classic)
         self.assertIn('+ 4.0 s', classic)
         self.assertEqual(after[after.index('BEST') + 1], last)
 
@@ -257,7 +257,7 @@ class AppNativeOverlay(unittest.TestCase):
         classic = '\n'.join(self._classic())
         # classic window prints "<raw> + <pen> s" for the same lap
         self.assertIn('+ %.1f s' % (pen / 1000), classic)
-        raw_txt = classic.split('ULTIMA  ' + last)[1].split('\n')[1].strip().split(' + ')[0]
+        raw_txt = classic.split('LAST    ' + last)[1].split('\n')[1].strip().split(' + ')[0]
         m2, r2 = raw_txt.split(':')
         raw_ms = int(m2) * 60000 + int(float(r2) * 1000 + 0.5)
         self.assertEqual(corrected_ms, raw_ms + pen)

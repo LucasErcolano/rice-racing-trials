@@ -1,15 +1,15 @@
-# Parches candidatos de Dummy.kn5 (CANDIDATO NO VERIFICADO EN JUEGO)
+# Dummy.kn5 candidate patches (CANDIDATE, NOT VERIFIED IN GAME)
 
-Este directorio versiona sólo el **código** (generador y script de aplicar/revertir). Los binarios
-candidatos se generan en `dist/track-calibration/patches/` (ignorado por git) porque son derivados
-del mod:
+This directory versions only the **code** (generator and apply/revert script). The candidate
+binaries are generated in `dist/track-calibration/patches/` (ignored by git) because they are derived
+from the mod:
 
 ```
-python -m track.tool dummy-patch --source <carpeta o ZIP de la pista> --track FSAEJ_Endurance \
+python -m track.tool dummy-patch --source <track folder or ZIP> --track FSAEJ_Endurance \
   --output dist/track-calibration/patches/FSAEJ_Endurance-dummy-start-after8
 ```
 
-Cada carpeta contiene `Dummy.kn5.candidate`, `manifest.json` (SHA-256 del original esperado, posiciones
-antes/después y comprobaciones de integridad), `SHA256SUMS.txt` y `Apply-DummyPatch.ps1`. El original
-no se copia porque es del mod: el script guarda un backup verificado en la propia instalación.
-Ver `docs/native-timing.md`.
+Each folder contains `Dummy.kn5.candidate`, `manifest.json` (SHA-256 of the expected original, positions
+before/after and integrity checks), `SHA256SUMS.txt` and `Apply-DummyPatch.ps1`. The original
+is not copied because it belongs to the mod: the script stores a verified backup in the installation itself.
+See `docs/native-timing.md`.

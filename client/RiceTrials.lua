@@ -749,7 +749,7 @@ local function hudState()
       session_id=assignment.session_id} or nil,
     event=calibration and calibration.event or nil,
     phase=calibration and route and route.phase or nil,
-    -- Penalties carry no evidence until a detector is commissioned: shown as "sin evidencia".
+    -- Penalties carry no evidence until a detector is commissioned: shown as "No Evidence".
     lap=timed and liveLap() or nil,
     last_official=nil, best=nil, last_local=lastLap, best_local=bestLap,
     sync={online=online, pending=#queue.entries, persistence=persistenceForHud(),
@@ -774,21 +774,21 @@ local function timesRows()
   local rows = {}
   local live = started and route and route.phase == 'timed' and liveLap() or nil
   if live and live.projected_ms then
-    rows[#rows + 1] = {'AHORA  '..f(live.projected_ms), live.projected_ms > live.elapsed_ms and 'warn' or 'ok'}
-    rows[#rows + 1] = {string.format('        penal. +%.1f s', (live.projected_ms - live.elapsed_ms) / 1000), 'info'}
+    rows[#rows + 1] = {'NOW    '..f(live.projected_ms), live.projected_ms > live.elapsed_ms and 'warn' or 'ok'}
+    rows[#rows + 1] = {string.format('        pen. +%.1f s', (live.projected_ms - live.elapsed_ms) / 1000), 'info'}
   elseif live then
-    rows[#rows + 1] = {'AHORA  '..f(live.elapsed_ms), 'info'}
+    rows[#rows + 1] = {'NOW    '..f(live.elapsed_ms), 'info'}
   end
   if lastLap then
-    rows[#rows + 1] = {'ULTIMA  '..f(lastLap.corrected_ms), lastLap.penalty_ms > 0 and 'warn' or 'ok'}
+    rows[#rows + 1] = {'LAST    '..f(lastLap.corrected_ms), lastLap.penalty_ms > 0 and 'warn' or 'ok'}
     rows[#rows + 1] = {string.format('        %s + %.1f s', f(lastLap.raw_ms), lastLap.penalty_ms / 1000), 'info'}
-  else rows[#rows + 1] = {'ULTIMA  --', 'info'} end
-  rows[#rows + 1] = {'MEJOR   '..(bestLap and f(bestLap.corrected_ms) or '--'), 'ok'}
+  else rows[#rows + 1] = {'LAST    --', 'info'} end
+  rows[#rows + 1] = {'BEST    '..(bestLap and f(bestLap.corrected_ms) or '--'), 'ok'}
   return rows
 end
 local function deltaRow()
   if not deltaMod then return nil end
-  if not (deltaD and deltaD:has_reference()) then return {'DELTA   -- (falta vuelta de referencia)', 'info'} end
+  if not (deltaD and deltaD:has_reference()) then return {'DELTA   -- (no reference lap yet)', 'info'} end
   if liveDelta == nil then return {'DELTA   --', 'info'} end
   return {'DELTA   '..deltaMod.format(liveDelta)..' s', liveDelta <= 0 and 'ok' or 'error'}
 end
@@ -817,9 +817,9 @@ local function drawDeltaBar(nRows)
   ui.drawRectFilled(vec2(mid - 1, y0 - 2), vec2(mid + 1, y0 + h + 2), rgbm(1, 1, 1, 1), 0)
 end
 function script.windowTimes(dt)
-  if not hud then ui.text('Tiempos no disponibles'); return end
+  if not hud then ui.text('Times not available'); return end
   local okRows, rows = pcall(timesRows)
-  if not okRows then ui.text('Tiempos no disponibles'); return end
+  if not okRows then ui.text('Times not available'); return end
   local dr = deltaRow()
   if dr then rows[#rows + 1] = dr end
   local model = {title='Rice Trials', lines={}}
@@ -833,14 +833,14 @@ function script.windowPenalties(dt)
     local ok = pcall(penaltyMod.draw, penaltyStore, ui, ac, dt)
     if ok then pcall(drawNativeLaps); return end
   end
-  ui.text('Panel de penalizaciones no disponible')
+  ui.text('Penalty panel not available')
   pcall(drawNativeLaps)
 end
 -- Native-style timing overlay: shows ONLY values the client already computed
 -- (liveLap/lastLap/bestLap/deltaD), so it can never disagree with the scoring
 -- path. The penalty line stays separate: a detected penalty is visible without
 -- being hidden inside the lap time, and a detector with no evidence is shown as
--- "sin evidencia" instead of 0.
+-- "No Evidence" instead of 0.
 local function overlayState()
   local live = started and route and route.phase == 'timed' and liveLap() or nil
   -- penaltyOutcome() returns {penalty_ms, applied, deduped} (penalties.apply);
@@ -891,9 +891,9 @@ local function overlayText(u, text)
   if type(u.text) == 'function' then pcall(u.text, text) end
 end
 function script.windowNative(dt)
-  if not overlayCacheInstance then overlayText(ui, 'Overlay nativo no disponible'); return end
+  if not overlayCacheInstance then overlayText(ui, 'Native overlay not available'); return end
   local okU, timing, delta = pcall(overlayCacheInstance.update, overlayCacheInstance, dt)
-  if not okU or not timing then overlayText(ui, 'Overlay nativo no disponible'); return end
+  if not okU or not timing then overlayText(ui, 'Native overlay not available'); return end
   local okT = pcall(nativeRender.draw, timing, overlayConfig)
   -- Stack the delta panel under the timing panel instead of drawing over it.
   if type(delta) == 'table' and type(timing.layout) == 'table' and type(nativeRender.height) == 'function' then
@@ -906,7 +906,7 @@ function script.windowNative(dt)
     end
   end
   local okD = pcall(nativeRender.draw, delta, overlayConfig)
-  if not (okT or okD) then overlayText(ui, 'Overlay nativo no disponible') end
+  if not (okT or okD) then overlayText(ui, 'Native overlay not available') end
 end
 function script.overlayEnabled()
   if overlayConfig.overlay_enabled == false then return false end

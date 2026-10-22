@@ -1,12 +1,12 @@
-# Límites y gates de aceptación
+# Limits and acceptance gates
 
-1. El archivo original incluye definiciones medidas de FSAEJ Endurance, **no** el KN5 instalable. Posteriormente se descargaron los archivos FSAEJ Endurance, FSAEJ Skidpad y MFT02 desde el Drive autorizado. No se incluyen en los paquetes distribuidos; todavía hace falta comprobarlos dentro del juego. Los circuitos Rice del archivo original son alternativos y no reemplazan al seleccionado.
-2. No se ejecutó Assetto Corsa ni CSP en Windows en este entorno. Pruebas Lua aisladas verifican algoritmos puros, no API ni autoload real.
-3. No hay evidencia física suficientemente fiable de derribo de conos: proximidad, por sí sola, no permite penalizar. Si la API física no expone cambio de estado verificable, cada contacto requiere revisión humana.
-4. El off-course y slalom exigen geometría y gates versionados de la instalación real. Las definiciones históricas deben cotejarse con el KN5 descargado y validarse dentro del juego. Sin calibración, estado `PENDING_REVIEW` o `DETECTOR_ERROR`, nunca `VALID`.
-5. El primer cruce del timing gate desde el spawn es outlap; no se declara corregido el Best Lap nativo. Un HUD propio no altera tiempos internos del juego.
-6. HTTP simple con token en LAN no proporciona confidencialidad ante otros usuarios de la red. Aislar la LAN o añadir terminación TLS y controles operativos.
-7. El pipeline Windows no equivale a un ejecutable Windows realmente compilado y probado. Comprobar instalación, autoload, continuidad sin HUD, persistencia tras apagado y reversión.
-8. Las pruebas de entrega Linux no bastan para habilitar las pruebas de pilotos: hacer dry-run humano y firmar la checklist de `windows-validation.md`.
+1. The original archive includes measured FSAEJ Endurance definitions, **not** the installable KN5. The FSAEJ Endurance, FSAEJ Skidpad and MFT02 files were later downloaded from the authorized Drive. They are not included in the distributed packages and still need to be checked inside the game. The Rice tracks in the original archive are alternatives and do not replace the selected one.
+2. Assetto Corsa and CSP were not run on Windows in this environment. Isolated Lua tests verify pure algorithms, not the real API or autoload.
+3. There is no sufficiently reliable physical evidence of cone knock-downs: proximity alone does not allow a penalty. If the physics API does not expose a verifiable state change, every contact requires human review.
+4. Off-course and slalom require versioned geometry and gates from the real installation. Historical definitions must be checked against the downloaded KN5 and validated inside the game. Without calibration, the status is `PENDING_REVIEW` or `DETECTOR_ERROR`, never `VALID`.
+5. The first timing gate crossing from the spawn is an out lap; the native Best Lap is not declared corrected. A custom HUD does not change the game's internal times.
+6. Plain HTTP with a token on the LAN does not provide confidentiality against other network users. Isolate the LAN or add TLS termination and operational controls.
+7. The Windows pipeline is not the same as a Windows executable that was actually built and tested. Check installation, autoload, continuity without the HUD, persistence after shutdown and rollback.
+8. Linux delivery tests are not enough to enable driver trials: run a human dry-run and sign the checklist in `windows-validation.md`.
 
-Los estados se distinguen como **implementado**, **probado en Linux** y **validado en Assetto Corsa/Windows**. No se confunden entre sí.
+Statuses are kept distinct as **implemented**, **tested on Linux** and **validated in Assetto Corsa/Windows**. They are never conflated.

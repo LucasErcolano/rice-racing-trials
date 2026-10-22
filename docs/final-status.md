@@ -1,31 +1,31 @@
-# Estado de la entrega V2 de campo
+# Status of the V2 field delivery
 
-## Alcance autorizado
+## Authorized scope
 
-Velocity confirmó CSP 2.11, instalación de nuestra app Lua, LAN entre estaciones y autorización para ejecutar nuestro servidor y leaderboard en la TV. **No se requiere integrar el leaderboard de Velocity.** La pre-release V2 es para pruebas reales y no queda bloqueada por esa integración ni por calibraciones pendientes.
+Velocity confirmed CSP 2.11, installation of our Lua app, LAN between stations and authorization to run our server and leaderboard on the TV. **Integrating the Velocity leaderboard is not required.** The V2 pre-release is for real-world testing and is not blocked by that integration or by pending calibrations.
 
-**`Dummy.kn5`: VALIDADO EN JUEGO por el usuario.** No se distribuye el archivo de terceros. Se conserva la herramienta que genera y aplica el parche desde el material local del operador.
+**`Dummy.kn5`: VALIDATED IN GAME by the user.** The third-party file is not distributed. The tool that generates and applies the patch from the operator's local material is kept.
 
-## Entregado
+## Delivered
 
-- Dos journals A/B, payloads, colas, reintentos y endpoints separados: captura nativa de AC y resultado penalizado con evidencia local. Un error en los detectores no debe bloquear la captura o el envío nativo.
-- Identidad estable `(station_id, session_id, lap_id)` respaldada por el journal. Reintentos byte a byte, reconciliación en ambos órdenes, una sola fila por vuelta y conflictos persistidos para revisión.
-- Recuperación offline de vueltas nativas: el último contexto de asignación autenticado persiste tras reiniciar la app y se reutiliza solo hasta 600 s de reloj de juego. La asignación caducada se elimina antes de observar la siguiente vuelta nativa. Sin asignación suficiente, la vuelta queda `UNASSIGNED`; no se atribuye automáticamente a un piloto distinto. `/v2/field` permite revisarla y asignarla manualmente con auditoría, sin ingresarla al ranking oficial.
-- Nativa sola: bruto provisional con `PENALTIES_PENDING`. Penalizada: resultado calculado por servidor desde eventos y ajustes locales, separado del bruto y marcado pendiente de revisión mientras no esté verificado.
-- Verificación administrativa de campo autenticada, con motivo, hash de la evidencia y auditoría persistente. Permite mostrar una corrección verificada **para pruebas**, sin convertirla en resultado oficial. Los flags del cliente nunca verifican una vuelta por sí solos.
-- Monitor propio `/v2/field`, auto-refresco, export JSON y estado de cada canal. `/admin`, `/tv` y el ranking V1 mantienen su comportamiento previo.
-- Conos: el contacto geométrico suficiente sigue penalizando, como en V1. La condición OR de contacto o trayectoria próxima no puede borrar ese contacto. Los gates de ruta no calibrados se omiten; siguen disponibles los canales independientes de conos, bordes y slalom.
-- Instalador Windows con `-ProtocolV2`, servidor portable con `-EnablePenaltiesV2` y persistencia de ese flag al registrar la tarea. V1 sigue siendo el default.
-- Smoke de procesos y HTTP real para fuente y exe compilado, pruebas de cliente Lua, servidor, geometría, navegador y empaquetado. Los resultados de cada build Windows se publican como evidencia de GitHub Actions.
+- Two A/B journals, payloads, queues, retries and separate endpoints: native AC capture and penalized result with local evidence. A detector error must not block native capture or submission.
+- Stable identity `(station_id, session_id, lap_id)` backed by the journal. Byte-for-byte retries, reconciliation in either order, a single row per lap and conflicts persisted for review.
+- Offline recovery of native laps: the last authenticated assignment context persists across app restarts and is reused only for up to 600 s of game clock. An expired assignment is removed before the next native lap is observed. Without a sufficient assignment, the lap stays `UNASSIGNED`; it is never automatically attributed to a different driver. `/v2/field` lets you review it and assign it manually with an audit trail, without entering it into the official ranking.
+- Native lap alone: provisional raw time with `PENALTIES_PENDING`. Penalized: result calculated by the server from local events and settings, kept apart from the raw time and marked Pending Review while unverified.
+- Authenticated administrative field verification, with reason, evidence hash and persistent audit. It allows showing a verified correction **for testing**, without turning it into an official result. Client flags never verify a lap on their own.
+- Dedicated `/v2/field` monitor, auto-refresh, JSON export and per-channel status. `/admin`, `/tv` and the V1 ranking keep their previous behavior.
+- Cones: sufficient geometric contact still penalizes, as in V1. The OR condition of contact or nearby trajectory cannot erase that contact. Uncalibrated route gates are skipped; the independent cone, edge and slalom channels remain available.
+- Windows installer with `-ProtocolV2`, portable server with `-EnablePenaltiesV2`, and that flag persisted when registering the task. V1 remains the default.
+- Process and real-HTTP smoke tests for the source and the compiled exe, plus Lua client, server, geometry, browser and packaging tests. Results for each Windows build are published as GitHub Actions evidence.
 
-## Límites explícitos
+## Explicit limits
 
-Las dos colas son independientes, **no** dos procesos, equipos o runtimes: ambos productores comparten AC/CSP y el disco. La caída de AC, CSP, la estación o el almacenamiento puede afectar a ambos. La recuperación por journals no prueba tolerancia a un corte físico de energía.
+The two queues are independent, **not** two processes, machines or runtimes: both producers share AC/CSP and the disk. A failure of AC, CSP, the station or storage can affect both. Journal recovery does not prove tolerance to a physical power cut.
 
-La V2 de campo no agrega vueltas provisionales al ranking oficial: `official=false` y `corrected_ms=null` incluso después de una verificación manual de campo. La cifra corregida se muestra en `corrected_preview_ms` (alias `preview_ms`) con su estado. La validación deportiva y la calibración en pista siguen pendientes, pero no bloquean instalar esta pre-release.
+The V2 field build does not add provisional laps to the official ranking: `official=false` and `corrected_ms=null` even after a manual field verification. The corrected figure is shown in `corrected_preview_ms` (alias `preview_ms`) with its status. Sporting validation and on-track calibration remain pending, but they do not block installing this pre-release.
 
-Pendiente de comprobar durante las pruebas: comportamiento real de los journals y APIs CSP 2.11, HUD, detección de conos/bordes/slalom, recuperación de red, concurrencia de estaciones y calibración física de gates. **No se declara que V2 completa ya fue validada en juego.** La confirmación de `Dummy.kn5` sí queda registrada como validación del usuario.
+To be checked during testing: real behavior of the journals and CSP 2.11 APIs, HUD, cone/edge/slalom detection, network recovery, station concurrency and physical gate calibration. **Complete V2 is not claimed to be validated in game.** The `Dummy.kn5` confirmation is recorded as user validation.
 
-## Instalar y probar
+## Install and test
 
-Ver [guía de campo V2](v2-field-testing.md). Recomendado: puerto y SQLite exclusivos de V2 para no tocar la V1 operativa. Los ZIP instalables se generan en Windows; el paquete completo incluye el servidor compilado y el cliente, pero no Assetto Corsa, CSP, auto, pista, KN5, credenciales ni bases de datos.
+See the [V2 field guide](v2-field-testing.md). Recommended: a dedicated V2 port and SQLite database so the operational V1 is untouched. The installable ZIPs are built on Windows; the complete package includes the compiled server and the client, but not Assetto Corsa, CSP, car, track, KN5, credentials or databases.

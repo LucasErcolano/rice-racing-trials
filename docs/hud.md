@@ -1,106 +1,112 @@
-# HUD del cliente (`client/hud.lua`)
+# Client HUD (`client/hud.lua`)
 
-Estado: **probado en Linux con dobles de `ui` (lupa, Lua 5.4 y LuaJIT 2.1)**. No se ejecutó dentro de Assetto Corsa/CSP. Integrado en `RiceTrials.lua`: `script.windowMain` dibuja el modelo cacheado (0.25 s) y, si `hud.lua` no carga o `hud.draw` falla, cae a la ventana de texto plano. Las penalidades se muestran como «sin evidencia» porque ningún detector está comisionado. Configuración por estación en `station_config.lua`: `hud_scale`, `hud_x`, `hud_y`, `hud_max_errors`, `hud_font`.
+Status: **tested on Linux with `ui` doubles (lupa, Lua 5.4 and LuaJIT 2.1)**. Not run inside Assetto Corsa/CSP. Integrated in `RiceTrials.lua`: `script.windowMain` draws the cached model (0.25 s) and, if `hud.lua` fails to load or `hud.draw` fails, falls back to the plain text window. Penalties show as "No Evidence" because no detector is commissioned. Per-station settings in `station_config.lua`: `hud_scale`, `hud_x`, `hud_y`, `hud_max_errors`, `hud_font`.
 
-## Separación modelo / render
+## Model / render split
 
-- `hud.model(state, config) -> model`: función pura. No lee `ac`, `ui` ni `io`; sólo usa `state`, `config` y `scoring.corrected_ms` (módulo `scoring` cargado con `require` una vez; se puede inyectar asignando `hud.scoring`). Devuelve:
+- `hud.model(state, config) -> model`: pure function. It does not read `ac`, `ui` or `io`; it only uses `state`, `config` and `scoring.corrected_ms` (the `scoring` module is loaded once with `require`; it can be injected by assigning `hud.scoring`). Returns:
   ```lua
-  {schema=1, title='Rice Trials - PROVISIONAL / CSP no validado',
-   banner={text=..., level=...} | nil,   -- aviso más grave, primero de su nivel
+  {schema=1, title='Rice Trials - PROVISIONAL / CSP not validated',
+   banner={text=..., level=...} | nil,   -- most severe warning, first of its level
    lines={{text=..., level='ok'|'info'|'warn'|'error'}, ...},
    layout={scale=, x=, y=, max_errors=}}
   ```
-- `hud.draw(model, config) -> boolean`: dibuja el modelo. Nunca lanza errores (todo bajo `pcall`); devuelve `false` si `ui` falta o falla.
-- `hud.cache(interval)`: objeto con `:update(dt, state, config) -> model` que recalcula el modelo como máximo cada `interval` segundos (default 0,25 s). Así el callback de ventana por frame sólo dibuja una tabla ya armada (sin trabajo pesado por frame).
-- `hud.format_ms(ms)`: `m:ss.mmm`, o `--` si el valor no es un entero válido.
+- `hud.draw(model, config) -> boolean`: draws the model. Never raises (everything runs under `pcall`); returns `false` if `ui` is missing or fails.
+- `hud.cache(interval)`: object with `:update(dt, state, config) -> model` that recomputes the model at most every `interval` seconds (default 0.25 s). The per-frame window callback therefore only draws a prebuilt table (no heavy per-frame work).
+- `hud.format_ms(ms)`: `m:ss.mmm`, or `--` if the value is not a valid integer.
 
-Los textos del HUD son ASCII a propósito (sin tildes): la cobertura de glifos de las fuentes de CSP no está verificada.
+HUD strings are deliberately ASCII (no accents): glyph coverage of the CSP fonts is not verified.
 
-## Esquema de `state` (todos los campos toleran `nil`)
+## `state` schema (every field tolerates `nil`)
 
 ```lua
 state = {
   assignment = {pilot_id='p1', pilot_name='Ana', session_id='s1'} | nil,
   event = 'endurance' | 'autocross' | 'skidpad' | nil,
-  phase = 'waiting' | 'outlap' | 'timed' | nil,   -- nil: ruta no calibrada
+  phase = 'waiting' | 'outlap' | 'timed' | nil,   -- nil: route not calibrated
   lap = {
-    elapsed_ms = 70123,          -- entero; sólo se muestra con phase == 'timed'
-    penalties = {                 -- por clave: nil = SIN EVIDENCIA (nunca 0 implícito)
+    elapsed_ms = 70123,          -- integer; only shown when phase == 'timed'
+    penalties = {                 -- per key: nil = NO EVIDENCE (never an implicit 0)
       cone = 0..100,              -- endurance
       off_course = 0..100,        -- endurance
-      slalom = {'S1', 'S4'},      -- endurance: ids de puertas falladas; {} = evidencia de 0
+      slalom = {'S1', 'S4'},      -- endurance: ids of missed gates; {} = evidence of 0
       doo = 0..100, oc = 0..100,  -- autocross
     },
   },
   last_official = {lap_id=, status='VALID'|'PENDING_REVIEW'|'INVALID'|'OUTLAP'|'DETECTOR_ERROR',
-                   raw_ms=, corrected_ms=} | nil,  -- tal cual lo devolvió el servidor
-  best = {status='VALID', corrected_ms=} | nil,     -- sólo se muestra si status == 'VALID'
+                   raw_ms=, corrected_ms=} | nil,  -- exactly as returned by the server
+  best = {status='VALID', corrected_ms=} | nil,     -- only shown if status == 'VALID'
   sync = {
-    online = true | false | nil,                    -- nil: desconocido
-    pending = 0,                                    -- entradas en cola local
+    online = true | false | nil,                    -- nil: unknown
+    pending = 0,                                    -- entries in the local queue
     last_ack = {lap_id='ST01-x-3', age_s=12} | nil,
     persistence = 'ok' | 'degraded' | 'corrupt' | 'unavailable' | nil,
   },
-  detector_errors = {'texto', ...} | nil,          -- errores críticos del detector
-  status = 'texto libre del cliente' | nil,         -- p. ej. el status actual de RiceTrials.lua
+  detector_errors = {'text', ...} | nil,           -- critical detector errors
+  status = 'free-form client text' | nil,          -- e.g. the current RiceTrials.lua status
 }
 ```
 
-Correspondencia sugerida con `RiceTrials.lua` actual: `assignment` = `assignment` autenticado; `phase` = `route.phase` (`waiting`/`outlap`/`timed`) o `nil` si no hay `calibration`; `lap.elapsed_ms` = `(elapsed-started)*1000` redondeado; `sync.pending` = `#queue.entries`; `sync.persistence`: `'corrupt'` si `status` contiene `QUEUE_CORRUPT`, `'unavailable'` si contiene `STORAGE_UNAVAILABLE`, `'degraded'` si contiene `STORAGE_UNVERIFIED`; `sync.online` según la última respuesta de heartbeat/assignment; `last_ack` cuando un `POST /api/laps` es reconocido. Hoy el servidor sólo responde `PENDING_REVIEW` al cliente, por lo que `best` queda en `--` hasta que exista un endpoint que devuelva resultados `VALID`.
+Suggested mapping to the current `RiceTrials.lua`: `assignment` = the authenticated `assignment`; `phase` = `route.phase` (`waiting`/`outlap`/`timed`) or `nil` if there is no `calibration`; `lap.elapsed_ms` = `(elapsed-started)*1000` rounded; `sync.pending` = `#queue.entries`; `sync.persistence`: `'corrupt'` if `status` contains `QUEUE_CORRUPT`, `'unavailable'` if it contains `STORAGE_UNAVAILABLE`, `'degraded'` if it contains `STORAGE_UNVERIFIED`; `sync.online` from the last heartbeat/assignment reply; `last_ack` when a `POST /api/laps` is acknowledged. Today the server only replies `PENDING_REVIEW` to the client, so `best` stays at `--` until an endpoint returns `VALID` results.
 
-## Reglas de presentación
+## Display rules
 
-| Situación | Línea | Nivel |
+| Situation | Line | Level |
 |---|---|---|
-| Sin asignación | `Piloto: SIN ASIGNACION (no se puntua)` + banner | warn |
-| Outlap | `OUTLAP: vuelta de salida, NO cronometrada`; tiempo `--`; sin proyección | warn |
-| Vuelta sin evidencia | `Conos: sin evidencia`, etc.; `Proyectado: sin evidencia (...)` | warn |
-| Evidencia parcial | sólo se muestran las conocidas; **no** se proyecta | warn |
-| Evidencia completa | `Proyectado PROVISIONAL: m:ss.mmm` vía `scoring.corrected_ms` | info |
-| Penalidad malformada o `corrected_ms` nil | `Proyectado: no calculable` | error |
-| Skidpad | `Proyectado: no disponible` (requiere splits por lado) | warn |
-| Última oficial `VALID` | `Ultima oficial: <corregido> VALID` | ok |
-| Última `PENDING_REVIEW` u otro | `Ultima: <bruto> bruto <ESTADO> (no oficial)` | warn/info/error |
-| Estado de servidor desconocido | `Ultima oficial: estado desconocido (...)` | error |
-| Mejor corregida | sólo con `best.status == 'VALID'`; si no `--` | ok/info |
-| Offline con cola | `Servidor: OFFLINE`, `Cola pendiente: N`, banner | warn |
-| Persistencia corrupta / no disponible | línea + banner | error |
-| Persistencia degradada | línea + banner | warn |
-| Errores de detector | hasta `hud_max_errors` (default 3) + `(+N errores mas)` + banner | error |
+| Assigned driver | `Driver: <name>` | ok |
+| No assignment | `Driver: none assigned (not scored)` + banner `NO DRIVER ASSIGNED` | warn |
+| Out lap | `OUTLAP: out lap, NOT timed`; time `--`; no projection | warn |
+| Before the start line | `Waiting for start line` | info |
+| Timed lap | `Lap in progress`, `Time: m:ss.mmm` | info |
+| Route not calibrated | `Route not calibrated: no timing` | warn |
+| Lap with no evidence | `Cones: No Evidence`, etc.; `Projected: No Evidence (...)` | warn |
+| Partial evidence | only the known ones are shown; **no** projection | warn |
+| Full evidence | `Projected PROVISIONAL: m:ss.mmm` via `scoring.corrected_ms` | info |
+| Malformed penalty or `corrected_ms` nil | `Projected: cannot compute` | error |
+| Skidpad | `Projected: not available` (needs per-side splits) | warn |
+| Last official `VALID` | `Last official: <corrected> VALID` | ok |
+| Last `PENDING_REVIEW` or other | `Last: <raw> raw <STATUS> (unofficial)` | warn/info/error |
+| Unknown server status | `Last official: unknown status (...)` | error |
+| Station-computed final times | `Last Final: ...`, `Best Final: ...` | ok |
+| Best Corrected | `Best Corrected: ...` only with `best.status == 'VALID'`; otherwise `--` | ok/info |
+| Online | `Server: Online` | ok |
+| Offline with queue | `Server: Offline`, `Pending queue: N`, banner | warn |
+| Corrupt / unavailable persistence | line + banner | error |
+| Degraded persistence | line + banner | warn |
+| Detector errors | up to `hud_max_errors` (default 3) + `(+N more errors)` + banner | error |
 
-Los textos que vienen del servidor o del operador se sanean (caracteres de control reemplazados) y se recortan (40 caracteres).
+Text coming from the server or the operator is sanitized (control characters replaced) and truncated (40 characters).
 
-## Configuración
+## Settings
 
-| Clave | Default | Rango |
+| Key | Default | Range |
 |---|---|---|
-| `hud_scale` | 1 | 0,5 a 3 (tamaño de fuente 15 px por escala) |
-| `hud_x`, `hud_y` | 8, 8 | 0 a 10000 (px desde la esquina de la ventana) |
-| `hud_max_errors` | 3 | 1 a 10 |
-| `hud_font` | `Segoe UI;Weight=Bold` | nombre DWrite |
+| `hud_scale` | 1 | 0.5 to 3 (font size 15 px per scale unit) |
+| `hud_x`, `hud_y` | 8, 8 | 0 to 10000 (px from the window corner) |
+| `hud_max_errors` | 3 | 1 to 10 |
+| `hud_font` | `Segoe UI;Weight=Bold` | DWrite name |
 
-Valores no numéricos vuelven al default; fuera de rango se recortan.
+Non-numeric values fall back to the default; out-of-range values are clamped.
 
-## Render y APIs
+## Render and APIs
 
-Sólo `ui.*` de `docs/csp-api-reference.md`, cada una comprobada con `type(ui.x) == 'function'` antes de usarla:
+Only `ui.*` from `docs/csp-api-reference.md`, each checked with `type(ui.x) == 'function'` before use:
 
-- Fondo negro al 80 % con `ui.drawRectFilled(vec2, vec2, rgbm, 4)`, ancho tomado de `ui.windowSize()` si existe.
-- Texto con `ui.pushDWriteFont` + `ui.dwriteText(text, size, color)`; posición con `ui.setCursor(vec2)`. Colores de alto contraste: verde (ok), blanco (info), amarillo (warn), rojo (error).
-- `ui.popDWriteFont` **no figura** en `docs/csp-api-reference.md`; se usa sólo si existe en runtime. Si no existe, no se usa DWrite (para no dejar la pila de fuentes desbalanceada) y se cae a `ui.textColored`, y luego a `ui.text`.
-- Si DWrite falla en medio del dibujo, `popDWriteFont` se llama igual.
-- No verificado en juego: si las coordenadas de `drawRectFilled` son relativas a la ventana, el aspecto real de las fuentes y el costo por frame.
+- 80 % black background with `ui.drawRectFilled(vec2, vec2, rgbm, 4)`, width taken from `ui.windowSize()` if available.
+- Text with `ui.pushDWriteFont` + `ui.dwriteText(text, size, color)`; position with `ui.setCursor(vec2)`. High-contrast colors: green (ok), white (info), yellow (warn), red (error).
+- `ui.popDWriteFont` is **not listed** in `docs/csp-api-reference.md`; it is used only if it exists at runtime. If it does not, DWrite is not used (so the font stack is never left unbalanced) and the HUD falls back to `ui.textColored`, then to `ui.text`.
+- If DWrite fails mid-draw, `popDWriteFont` is still called.
+- Not verified in game: whether `drawRectFilled` coordinates are window-relative, the real look of the fonts, and the per-frame cost.
 
-## Cerrar la ventana no detiene el scoring
+## Closing the window does not stop scoring
 
-El cronometraje, la cola y el envío viven en `script.update(dt)`, que CSP llama independientemente de que la ventana esté visible. `script.windowMain` (o el callback que use el orquestador) sólo debe llamar `hud.draw(cache:update(dt, state, config), config)`. Si la ventana está cerrada, CSP no llama al callback y simplemente no se dibuja nada. Esto está documentado en el SDK pero **no probado en juego** (ver `docs/limitations.md`, punto 7).
+Timing, the queue and submission live in `script.update(dt)`, which CSP calls whether or not the window is visible. `script.windowMain` (or whatever callback the orchestrator uses) should only call `hud.draw(cache:update(dt, state, config), config)`. If the window is closed, CSP does not call the callback and nothing is drawn. This is documented in the SDK but **not tested in game** (see `docs/limitations.md`, item 7).
 
 ## manifest.ini
 
-No se modificó. Hoy declara `[WINDOW_MAIN]` con `FUNCTION_MAIN = windowMain` y `FLAGS = MAIN`. **No está verificado en juego** que el HUD aparezca automáticamente al cargar la sesión; puede requerir que el piloto u operador lo abra desde la barra de apps de CSP. Comprobarlo en el Windows Validation Kit.
+Not modified. It currently declares `[WINDOW_MAIN]` with `FUNCTION_MAIN = windowMain` and `FLAGS = MAIN`. It is **not verified in game** that the HUD appears automatically when the session loads; the driver or operator may need to open it from the CSP app bar. Check this with the Windows Validation Kit.
 
-## Integración (referencia)
+## Integration (reference)
 
 ```lua
 local hud = require('hud')
@@ -110,8 +116,8 @@ function script.windowMain(dt)
 end
 ```
 
-`buildHudState()` debe ser barato (sólo copiar referencias ya calculadas en `script.update`).
+`buildHudState()` must be cheap (only copy references already computed in `script.update`).
 
 ## Tests
 
-`client/tests/test_hud.py`: modelo con estado nil/vacío, sin asignación, outlap, vuelta sin evidencia (no muestra 0 ni proyección), evidencia parcial, penalidades combinadas (fixture `endurance combined` = 2:34.500), evidencia explícita de 0, penalidad inválida, skidpad, offline con cola, persistencia corrupta/degradada, `PENDING_REVIEW` vs `VALID` (última y mejor), estado desconocido, errores de detector acotados, saneo de texto, configuración acotada, cache cada 0,25 s, render DWrite balanceado y escalado, fallback a `textColored`, `ui` ausente o fallando, pureza del modelo y smoke en LuaJIT 2.1.
+`client/tests/test_hud.py`: model with nil/empty state, no assignment, out lap, lap with no evidence (shows neither 0 nor a projection), partial evidence, combined penalties (fixture `endurance combined` = 2:34.500), explicit evidence of 0, invalid penalty, skidpad, offline with queue, corrupt/degraded persistence, `PENDING_REVIEW` vs `VALID` (last and best), unknown status, bounded detector errors, text sanitizing, clamped settings, cache every 0.25 s, balanced and scaled DWrite render, fallback to `textColored`, missing or failing `ui`, model purity and a LuaJIT 2.1 smoke test.

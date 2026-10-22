@@ -7,13 +7,13 @@ import html
 import math
 
 LAYERS = (
-    ('limits', 'Límites (superficie válida)', '#3fa7ff'),
-    ('ai', 'Línea AI (no es eje oficial)', '#40dfb0'),
-    ('mesh', 'Puntos de malla seleccionados', '#8c8c8c'),
-    ('cones', 'Clusters de conos (no confirmados)', '#ff9d1c'),
-    ('slalom', 'Slalom (calibración)', '#e04cff'),
-    ('route', 'Ruta exportada', '#ffe14d'),
-    ('telemetry', 'Telemetría', '#ff4d6d'),
+    ('limits', 'Limits (valid surface)', '#3fa7ff'),
+    ('ai', 'AI line (not an official centreline)', '#40dfb0'),
+    ('mesh', 'Selected mesh points', '#8c8c8c'),
+    ('cones', 'Cone clusters (unconfirmed)', '#ff9d1c'),
+    ('slalom', 'Slalom (calibration)', '#e04cff'),
+    ('route', 'Exported route', '#ffe14d'),
+    ('telemetry', 'Telemetry', '#ff4d6d'),
     ('timing', 'Timing gates / spawns', '#ffffff'),
 )
 
@@ -81,7 +81,7 @@ def svg(document, telemetry=None, route=None, width=1400, height=1000, compact=F
     for cone in document['cones'].get('clusters', []):
         cx, cz = frame(cone['x'], cone['z'])
         groups['cones'].append(f'<circle class="cone" cx="{cx:.1f}" cy="{cz:.1f}" r="2.5">'
-                               f'<title>Cluster no confirmado ({cone["x"]}, {cone["z"]}) '
+                               f'<title>Unconfirmed cluster ({cone["x"]}, {cone["z"]}) '
                                f'{cone["footprint_m"]} m</title></circle>')
     for gate in document['slalom'].get('gates', []):
         groups['slalom'].append(_gate(frame, {**gate, 'direction': None}, 'slalom', gate.get('label', 'slalom')))
@@ -92,7 +92,7 @@ def svg(document, telemetry=None, route=None, width=1400, height=1000, compact=F
         groups['telemetry'].append(_poly(frame, telemetry, 'telemetry'))
     gate = document.get('timing_gate')
     if gate:
-        groups['timing'].append(_gate(frame, gate, 'timing', 'AC_TIME_0 (meta nativa)'))
+        groups['timing'].append(_gate(frame, gate, 'timing', 'AC_TIME_0 (native finish)'))
     for name, mark in document.get('landmarks', {}).items():
         if name.startswith('AC_TIME_0'):
             continue
@@ -122,7 +122,7 @@ def svg(document, telemetry=None, route=None, width=1400, height=1000, compact=F
 
 
 def page(document, telemetry=None, telemetry_report=None, route=None):
-    title = f"{document['track']}: análisis de pista (derivado, no distribuir)"
+    title = f"{document['track']}: track analysis (derived, do not distribute)"
     toggles = ''.join(
         f'<input type="checkbox" id="t-{key}" checked><label for="t-{key}" style="color:{color}">{html.escape(text)}</label> '
         for key, text, color in LAYERS)
@@ -130,7 +130,7 @@ def page(document, telemetry=None, telemetry_report=None, route=None):
     marks = ''.join(f'<tr><td>{html.escape(n)}</td><td>{m["x"]}</td><td>{m["y"]}</td><td>{m["z"]}</td>'
                     f'<td>{m.get("forward_xz")}</td></tr>' for n, m in document.get('landmarks', {}).items())
     gate = document.get('timing_gate') or {}
-    surfaces = ''.join(f'<tr><td>{html.escape(k)}</td><td>{"sí" if v["valid_track"] else "no"}</td>'
+    surfaces = ''.join(f'<tr><td>{html.escape(k)}</td><td>{"yes" if v["valid_track"] else "no"}</td>'
                        f'<td>{v.get("meshes", 0)}</td><td>{v.get("vertices", 0)}</td></tr>'
                        for k, v in document.get('surfaces', {}).items())
     warnings = list(document.get('warnings', []))
@@ -140,33 +140,33 @@ def page(document, telemetry=None, telemetry_report=None, route=None):
     warnings.append(document['limits'].get('note', ''))
     telemetry_html = ''
     if telemetry_report:
-        telemetry_html = ('<h2>Telemetría</h2><pre>' + html.escape(str(telemetry_report)) + '</pre>')
+        telemetry_html = ('<h2>Telemetry</h2><pre>' + html.escape(str(telemetry_report)) + '</pre>')
     route_html = ''
     if route:
-        route_html = (f'<h2>Ruta exportada</h2><p>verified = <b>{str(route["verified"]).lower()}</b>'
-                      f'{" (aprobada por " + html.escape(route["approved_by"]) + ")" if route.get("approved_by") else ""}'
+        route_html = (f'<h2>Exported route</h2><p>verified = <b>{str(route["verified"]).lower()}</b>'
+                      f'{" (approved by " + html.escape(route["approved_by"]) + ")" if route.get("approved_by") else ""}'
                       f'; checkpoints: {len(route["checkpoints"])}</p>')
     return f'''<!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8"><title>{html.escape(title)}</title>
+<html lang="en"><head><meta charset="utf-8"><title>{html.escape(title)}</title>
 <style>body{{background:#0b1116;color:#ddd;font:14px sans-serif;margin:16px}}table{{border-collapse:collapse}}
 td,th{{border:1px solid #345;padding:2px 6px}}.map{{overflow:auto;border:1px solid #345;margin:8px 0}}
 label{{margin-right:12px}}.warn{{color:#ffcc66}}{hide}</style></head><body>
 <h1>{html.escape(title)}</h1>
-<p class="warn">Derivado de geometría propietaria del mod: uso interno del equipo, NO DISTRIBUIR.
-Coordenadas Assetto Corsa (m), proyección XZ con z hacia abajo.</p>
+<p class="warn">Derived from proprietary mod geometry: internal team use only, DO NOT DISTRIBUTE.
+Assetto Corsa coordinates (m), XZ projection with z pointing down.</p>
 {toggles}
 <div class="map">{svg(document, telemetry, route)}</div>
 <h2>Timing landmarks (Dummy.kn5)</h2>
-<table><tr><th>Nodo</th><th>x</th><th>y</th><th>z</th><th>forward xz</th></tr>{marks}</table>
-<p>Línea nativa: dirección {gate.get("direction")} ({html.escape(str(gate.get("direction_source")))});
-distancia spawn AC_START_0 al punto medio de la línea: {gate.get("spawn_to_line_midpoint_m")} m.</p>
-<h2>Superficies (surfaces.ini)</h2>
-<table><tr><th>KEY</th><th>IS_VALID_TRACK</th><th>mallas</th><th>vértices</th></tr>{surfaces}</table>
-<p>Límites: {html.escape(document["limits"]["status"])}; polilíneas: {len(document["limits"].get("polylines", []))}.</p>
-<p>Conos: {html.escape(document["cones"]["status"])}; clusters: {len(document["cones"].get("clusters", []))}.</p>
-<p>Slalom: {html.escape(document["slalom"]["status"])}; puertas: {len(document["slalom"].get("gates", []))}.</p>
+<table><tr><th>Node</th><th>x</th><th>y</th><th>z</th><th>forward xz</th></tr>{marks}</table>
+<p>Native line: direction {gate.get("direction")} ({html.escape(str(gate.get("direction_source")))});
+distance from AC_START_0 spawn to line midpoint: {gate.get("spawn_to_line_midpoint_m")} m.</p>
+<h2>Surfaces (surfaces.ini)</h2>
+<table><tr><th>KEY</th><th>IS_VALID_TRACK</th><th>meshes</th><th>vertices</th></tr>{surfaces}</table>
+<p>Limits: {html.escape(document["limits"]["status"])}; polylines: {len(document["limits"].get("polylines", []))}.</p>
+<p>Cones: {html.escape(document["cones"]["status"])}; clusters: {len(document["cones"].get("clusters", []))}.</p>
+<p>Slalom: {html.escape(document["slalom"]["status"])}; gates: {len(document["slalom"].get("gates", []))}.</p>
 {route_html}{telemetry_html}
-<h2>Avisos</h2><ul>{"".join(f"<li>{html.escape(w)}</li>" for w in warnings if w)}</ul>
-<h2>SHA-256 de origen</h2><pre>{html.escape(chr(10).join(f"{k}  {v}" for k, v in document["source_sha256"].items()))}</pre>
+<h2>Warnings</h2><ul>{"".join(f"<li>{html.escape(w)}</li>" for w in warnings if w)}</ul>
+<h2>Source SHA-256</h2><pre>{html.escape(chr(10).join(f"{k}  {v}" for k, v in document["source_sha256"].items()))}</pre>
 </body></html>
 '''

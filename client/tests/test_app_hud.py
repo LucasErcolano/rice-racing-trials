@@ -33,7 +33,7 @@ class AppHud(unittest.TestCase):
         script.windowMain(.3)
         text = '\n'.join(lines(lua))
         self.assertIn('Ana', text)
-        self.assertNotIn('Piloto: SIN ASIGNACION', text)
+        self.assertNotIn('Driver: none assigned', text)
         self.assertNotIn('Rice Driver Trials: NOT VALIDATED', text)  # HUD, not the plain fallback
 
     def test_window_falls_back_to_plain_text_when_hud_breaks(self):

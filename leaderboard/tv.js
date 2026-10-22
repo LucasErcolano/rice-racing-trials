@@ -3,7 +3,7 @@
 const params = new URLSearchParams(location.search);
 const REFRESH_MS = Math.max(500, Number(params.get('refresh') || 5) * 1000);
 const EVENT_NAMES = {endurance: 'Endurance', autocross: 'Autocross', skidpad: 'Skidpad'};
-const STATUS_NAMES = {VALID: 'VALID', valid: 'VALID', PENDING_REVIEW: 'PENDIENTE', DETECTOR_ERROR: 'ERR. DETECTOR', INVALID: 'INVÁLIDA', invalid: 'INVÁLIDA', dnf: 'DNF', OUTLAP: 'OUTLAP'};
+const STATUS_NAMES = {VALID: 'VALID', valid: 'VALID', PENDING_REVIEW: 'PENDING', DETECTOR_ERROR: 'DETECTOR ERR.', INVALID: 'INVALID', invalid: 'INVALID', dnf: 'DNF', OUTLAP: 'OUTLAP'};
 const el = id => document.getElementById(id);
 const sessionSelect = el('session');
 let pinnedSession = params.get('session_id') || '';
@@ -12,19 +12,19 @@ let lastOk = null;
 let lastData = null;
 
 function seconds(ms) { return ms == null ? '—' : (ms / 1000).toFixed(3); }
-function clock(date) { return date.toLocaleTimeString('es-AR', {hour12: false}); }
+function clock(date) { return date.toLocaleTimeString('en-US', {hour12: false}); }
 function penaltyText(event, p) {
   if (!p) return '';
   const parts = [];
   if (event === 'endurance') {
-    if (p.cone) parts.push(p.cone + ' cono' + (p.cone > 1 ? 's' : ''));
-    if (p.off_course) parts.push(p.off_course + ' fuera');
+    if (p.cone) parts.push(p.cone + ' cone' + (p.cone > 1 ? 's' : ''));
+    if (p.off_course) parts.push(p.off_course + ' off-track');
     if (p.slalom && p.slalom.length) parts.push(p.slalom.length + ' slalom');
   } else {
     if (p.doo) parts.push(p.doo + ' DOO');
     if (p.oc) parts.push(p.oc + ' OC');
   }
-  return parts.join(' · ') || 'limpia';
+  return parts.join(' · ') || 'clean';
 }
 function cell(row, text, className) {
   const td = row.insertCell();
@@ -35,7 +35,7 @@ function cell(row, text, className) {
 function setConnection(ok, detail) {
   const node = el('connection');
   node.dataset.state = ok ? 'online' : 'offline';
-  node.textContent = ok ? 'Conectado al servidor' : 'SIN CONEXIÓN con el servidor' + (detail ? ' (' + detail + ')' : '');
+  node.textContent = ok ? 'Connected to server' : 'Server Offline' + (detail ? ' (' + detail + ')' : '');
 }
 
 async function getJson(url) {
@@ -50,7 +50,7 @@ function renderSessions(list) {
   for (const s of list.sessions) {
     const option = document.createElement('option');
     option.value = s.session_id;
-    option.textContent = s.session_id + (s.active ? ' (activa)' : '');
+    option.textContent = s.session_id + (s.active ? ' (active)' : '');
     sessionSelect.append(option);
   }
   if (wanted && ![...sessionSelect.options].some(o => o.value === wanted)) {
@@ -78,7 +78,7 @@ function renderEvents(data) {
       nav.append(button);
     }
   }
-  el('event-title').textContent = 'Clasificación' + (chosenEvent ? ' · ' + (EVENT_NAMES[chosenEvent] || chosenEvent) : '');
+  el('event-title').textContent = 'Leaderboard' + (chosenEvent ? ' · ' + (EVENT_NAMES[chosenEvent] || chosenEvent) : '');
 }
 
 function render(data) {
@@ -86,7 +86,7 @@ function render(data) {
   renderEvents(data);
   el('banner').hidden = data.scoring_armed === true;
   document.body.dataset.scoringArmed = String(data.scoring_armed === true);
-  el('session-name').textContent = data.session_name || data.session_id || 'Sin sesión activa';
+  el('session-name').textContent = data.session_name || data.session_id || 'No active session';
   el('session-active').hidden = !data.active;
   el('rules-version').textContent = data.rules_version;
   // Defensive: an unarmed server never ranks; the page never promotes raw times either.
@@ -101,14 +101,14 @@ function render(data) {
     cell(row, seconds(entry.best_corrected_ms), 'num best');
     cell(row, seconds(entry.raw_ms), 'num raw');
     cell(row, penaltyText(entry.event, entry.penalties) + (entry.penalty_ms ? ' (+' + seconds(entry.penalty_ms) + ')' : ''), 'pen');
-    cell(row, entry.rank === 1 ? 'Líder' : '+' + seconds(entry.gap_ms), 'num gap');
+    cell(row, entry.rank === 1 ? 'Leader' : '+' + seconds(entry.gap_ms), 'num gap');
     cell(row, String(entry.valid_laps), 'num');
   }
   const pending = data.diagnostics.pending_review || 0;
   let message = '';
-  if (!data.session_id) message = 'No hay sesión activa. El administrador debe marcar una en /admin.';
-  else if (!data.scoring_armed) message = 'Ranking oficial deshabilitado: ' + data.laps.length + ' vuelta(s) registradas, ' + pending + ' pendiente(s) de revisión.';
-  else if (!rows.length) message = 'Todavía no hay vueltas VALID oficiales' + (pending ? ' (' + pending + ' pendiente(s) de revisión)' : '') + '.';
+  if (!data.session_id) message = 'No active session. The administrator must mark one in /admin.';
+  else if (!data.scoring_armed) message = 'Official ranking disabled: ' + data.laps.length + ' lap(s) recorded, ' + pending + ' pending review.';
+  else if (!rows.length) message = 'No official VALID laps yet' + (pending ? ' (' + pending + ' pending review)' : '') + '.';
   el('message').textContent = message;
 
   const stations = el('stations'); stations.replaceChildren();
@@ -116,15 +116,15 @@ function render(data) {
     const item = document.createElement('li');
     item.className = s.online ? 'online' : 'offline';
     item.dataset.station = s.station_id;
-    const seen = s.last_seen_utc ? clock(new Date(s.last_seen_utc)) : 'nunca';
-    item.textContent = s.station_id + ' · ' + (s.pilot_id || '-') + ' · ' + (s.online ? 'en línea' : 'DESCONECTADA (' + seen + ')');
+    const seen = s.last_seen_utc ? clock(new Date(s.last_seen_utc)) : 'never';
+    item.textContent = s.station_id + ' · ' + (s.pilot_id || '-') + ' · ' + (s.online ? 'online' : 'OFFLINE (' + seen + ')');
     stations.append(item);
   }
   if (!data.diagnostics.stations.length) {
-    const item = document.createElement('li'); item.textContent = 'Sin estaciones asignadas'; stations.append(item);
+    const item = document.createElement('li'); item.textContent = 'No stations assigned'; stations.append(item);
   }
   const counts = Object.entries(data.diagnostics.status_counts).map(([k, v]) => (STATUS_NAMES[k] || k) + ': ' + v);
-  el('diagnostics').textContent = (counts.join(' · ') || 'Sin vueltas') + ' · Pendientes de revisión: ' + pending;
+  el('diagnostics').textContent = (counts.join(' · ') || 'No laps') + ' · Pending review: ' + pending;
 
   const recent = el('recent-laps'); recent.replaceChildren();
   for (const lap of data.laps.slice(-12).reverse()) {
@@ -147,7 +147,7 @@ async function refresh() {
     el('updated').textContent = clock(lastOk);
     setConnection(true);
   } catch (error) {
-    setConnection(false, lastOk ? 'último dato ' + clock(lastOk) : error.message);
+    setConnection(false, lastOk ? 'last data ' + clock(lastOk) : error.message);
   }
 }
 

@@ -12,9 +12,9 @@ local KNOWN_STATUS = {VALID = 'ok', PENDING_REVIEW = 'warn', OUTLAP = 'info',
 -- Penalty fields shown per event (labels in the HUD). Skidpad needs per-side
 -- splits, so the HUD does not project it.
 local PENALTY_FIELDS = {
-  endurance = {{key = 'cone', label = 'Conos'}, {key = 'off_course', label = 'Off-course'},
+  endurance = {{key = 'cone', label = 'Cones'}, {key = 'off_course', label = 'Off-course'},
     {key = 'slalom', label = 'Slalom', list = true}},
-  autocross = {{key = 'doo', label = 'Conos (DOO)'}, {key = 'oc', label = 'Off-course (OC)'}},
+  autocross = {{key = 'doo', label = 'Cones (DOO)'}, {key = 'oc', label = 'Off-course (OC)'}},
 }
 
 local function finite(n) return type(n) == 'number' and n == n and n ~= math.huge and n ~= -math.huge end
@@ -63,7 +63,7 @@ end
 -- Penalty value semantics: nil = detector has no evidence (never shown as 0);
 -- integer >= 0 = evidence-backed count; slalom = array of missed gate ids.
 local function penaltyLine(field, value, amount)
-  if value == nil then return field.label..': sin evidencia', 'warn', 'missing' end
+  if value == nil then return field.label..': No Evidence', 'warn', 'missing' end
   if field.list then
     if type(value) ~= 'table' then return field.label..': dato invalido', 'error', 'invalid' end
     local n = #value
@@ -100,23 +100,23 @@ function M.model(state, config)
   local a = type(state.assignment) == 'table' and state.assignment or nil
   local pilot = a and (clean(a.pilot_name) or clean(a.pilot_id)) or nil
   if pilot then
-    add('Piloto: '..pilot, 'ok')
+    add('Driver: '..pilot, 'ok')
   else
-    add('Piloto: SIN ASIGNACION (no se puntua)', 'warn')
-    raise('SIN PILOTO ASIGNADO', 'warn')
+    add('Driver: none assigned (not scored)', 'warn')
+    raise('NO DRIVER ASSIGNED', 'warn')
   end
 
   -- Route phase / outlap.
   local phase = state.phase
   if phase == 'outlap' then
-    add('OUTLAP: vuelta de salida, NO cronometrada', 'warn')
-    raise('OUTLAP - no cuenta', 'info')
+    add('OUTLAP: out lap, NOT timed', 'warn')
+    raise('OUTLAP - not counted', 'info')
   elseif phase == 'timed' then
-    add('Vuelta en curso', 'info')
+    add('Lap in progress', 'info')
   elseif phase == 'waiting' then
-    add('Esperando cruce de largada', 'info')
+    add('Waiting for start line', 'info')
   else
-    add('Ruta no calibrada: sin cronometraje', 'warn')
+    add('Route not calibrated: no timing', 'warn')
   end
 
   -- Current time, penalties and provisional projection (timed lap only).
@@ -124,7 +124,7 @@ function M.model(state, config)
   local event = type(state.event) == 'string' and state.event or nil
   local timed = phase == 'timed'
   local elapsed = timed and lap.elapsed_ms or nil
-  add('Tiempo: '..M.format_ms(elapsed), 'info')
+  add('Time: '..M.format_ms(elapsed), 'info')
   if timed then
     local fields = event and PENALTY_FIELDS[event]
     local scoring = scoringModule()
@@ -132,8 +132,8 @@ function M.model(state, config)
     if type(lap.penalty_amounts) == 'table' then amounts = lap.penalty_amounts end
     local penalties = type(lap.penalties) == 'table' and lap.penalties or {}
     if not fields then
-      add('Penalidades: no disponibles para '..(clean(event, 16) or 'evento desconocido'), 'warn')
-      add('Proyectado: no disponible', 'warn')
+      add('Penalties: not available for '..(clean(event, 16) or 'unknown event'), 'warn')
+      add('Projected: not available', 'warn')
     else
       local missing, invalid, events = {}, false, {}
       for _, field in ipairs(fields) do
@@ -145,88 +145,88 @@ function M.model(state, config)
         else events[field.key] = value end
       end
       if #missing > 0 then
-        add('Proyectado: sin evidencia ('..table.concat(missing, ', ')..')', 'warn')
+        add('Projected: No Evidence ('..table.concat(missing, ', ')..')', 'warn')
       elseif int(lap.projected_ms) and lap.projected_ms >= 0 then
-        add('Proyectado PROVISIONAL: '..M.format_ms(lap.projected_ms), 'info')
+        add('Projected PROVISIONAL: '..M.format_ms(lap.projected_ms), 'info')
       elseif invalid or not scoring or type(scoring.corrected_ms) ~= 'function' then
-        add('Proyectado: no calculable', 'error')
+        add('Projected: cannot compute', 'error')
       else
         local ok, corrected = pcall(scoring.corrected_ms, event, elapsed, events)
         if ok and int(corrected) then
-          add('Proyectado PROVISIONAL: '..M.format_ms(corrected), 'info')
+          add('Projected PROVISIONAL: '..M.format_ms(corrected), 'info')
         else
-          add('Proyectado: no calculable', 'error')
+          add('Projected: cannot compute', 'error')
         end
       end
     end
   else
-    add('Penalidades: --', 'info')
+    add('Penalties: --', 'info')
   end
 
   -- Last official result as returned by the server, with its status.
   local last = type(state.last_official) == 'table' and state.last_official or nil
   if not last then
-    add('Ultima oficial: --', 'info')
+    add('Last official: --', 'info')
   else
     local status = type(last.status) == 'string' and last.status or nil
     local level = status and KNOWN_STATUS[status] or nil
     if not level then
-      add('Ultima oficial: estado desconocido ('..(clean(status, 20) or 'nil')..')', 'error')
+      add('Last official: unknown status ('..(clean(status, 20) or 'nil')..')', 'error')
     elseif status == 'VALID' then
-      add('Ultima oficial: '..M.format_ms(last.corrected_ms)..' VALID', 'ok')
+      add('Last official: '..M.format_ms(last.corrected_ms)..' VALID', 'ok')
     else
-      add('Ultima: '..M.format_ms(last.raw_ms)..' bruto '..status..' (no oficial)', level)
+      add('Last: '..M.format_ms(last.raw_ms)..' raw '..status..' (unofficial)', level)
     end
   end
 
   -- This station's own result: raw + configured penalties (not an official time).
   local ll = type(state.last_local) == 'table' and state.last_local or nil
   if ll and int(ll.raw_ms) and int(ll.corrected_ms) then
-    add('Ultima final: '..M.format_ms(ll.corrected_ms)..' ('..M.format_ms(ll.raw_ms)..' + '..
+    add('Last Final: '..M.format_ms(ll.corrected_ms)..' ('..M.format_ms(ll.raw_ms)..' + '..
       string.format('%.1f', (ll.penalty_ms or 0) / 1000)..' s)', (ll.penalty_ms or 0) > 0 and 'warn' or 'ok')
   end
   local bl = type(state.best_local) == 'table' and state.best_local or nil
-  if bl and int(bl.corrected_ms) then add('Mejor final: '..M.format_ms(bl.corrected_ms), 'ok') end
+  if bl and int(bl.corrected_ms) then add('Best Final: '..M.format_ms(bl.corrected_ms), 'ok') end
 
   -- Best corrected lap: only a VALID result from the server counts.
   local best = type(state.best) == 'table' and state.best or nil
   if best and best.status == 'VALID' and int(best.corrected_ms) and best.corrected_ms > 0 then
-    add('Mejor corregida: '..M.format_ms(best.corrected_ms), 'ok')
+    add('Best Corrected: '..M.format_ms(best.corrected_ms), 'ok')
   else
-    add('Mejor corregida: --', 'info')
+    add('Best Corrected: --', 'info')
   end
 
   -- Synchronisation.
   local sync = type(state.sync) == 'table' and state.sync or {}
   local pending = int(sync.pending) and sync.pending >= 0 and sync.pending or nil
-  if sync.online == true then add('Servidor: online', 'ok')
-  elseif sync.online == false then add('Servidor: OFFLINE', 'warn')
-  else add('Servidor: desconocido', 'warn') end
-  if pending == nil then add('Cola pendiente: desconocida', 'warn')
-  elseif pending == 0 then add('Cola pendiente: 0', 'ok')
-  else add('Cola pendiente: '..pending, 'warn') end
+  if sync.online == true then add('Server: Online', 'ok')
+  elseif sync.online == false then add('Server: Offline', 'warn')
+  else add('Server: unknown', 'warn') end
+  if pending == nil then add('Pending queue: unknown', 'warn')
+  elseif pending == 0 then add('Pending queue: 0', 'ok')
+  else add('Pending queue: '..pending, 'warn') end
   if sync.online ~= true and pending and pending > 0 then
-    raise('OFFLINE: '..pending..' vuelta(s) en cola local', 'warn')
+    raise('OFFLINE: '..pending..' lap(s) in local queue', 'warn')
   end
   local ack = type(sync.last_ack) == 'table' and sync.last_ack or nil
   if ack and clean(ack.lap_id) then
     local age = finite(ack.age_s) and ack.age_s >= 0 and string.format(' hace %ds', math.floor(ack.age_s)) or ''
-    add('Ultimo ack: '..clean(ack.lap_id, 32)..age, 'info')
+    add('Last ack: '..clean(ack.lap_id, 32)..age, 'info')
   else
-    add('Ultimo ack: --', 'info')
+    add('Last ack: --', 'info')
   end
   local persistence = sync.persistence
   if persistence == 'corrupt' then
-    add('Persistencia CORRUPTA: recuperacion manual', 'error')
-    raise('PERSISTENCIA CORRUPTA - avisar al operador', 'error')
+    add('Storage CORRUPT: manual recovery', 'error')
+    raise('STORAGE CORRUPT - tell the operator', 'error')
   elseif persistence == 'unavailable' then
-    add('Persistencia NO DISPONIBLE: no durable', 'error')
-    raise('PERSISTENCIA NO DISPONIBLE', 'error')
+    add('Storage UNAVAILABLE: not durable', 'error')
+    raise('STORAGE UNAVAILABLE', 'error')
   elseif persistence == 'degraded' then
-    add('Persistencia DEGRADADA: no durable', 'warn')
-    raise('PERSISTENCIA DEGRADADA', 'warn')
+    add('Storage DEGRADED: not durable', 'warn')
+    raise('STORAGE DEGRADED', 'warn')
   elseif persistence ~= 'ok' then
-    add('Persistencia: desconocida', 'warn')
+    add('Storage: unknown', 'warn')
   end
 
   -- Critical detector errors (bounded).
@@ -235,19 +235,19 @@ function M.model(state, config)
   for i = 1, #errors do
     local text = clean(errors[i], 48)
     if text then
-      if shown < layout.max_errors then add('ERROR detector: '..text, 'error') end
+      if shown < layout.max_errors then add('Detector ERROR: '..text, 'error') end
       shown = shown + 1
     end
   end
-  if shown > layout.max_errors then add(string.format('(+%d errores mas)', shown - layout.max_errors), 'error') end
-  if shown > 0 then raise('ERROR DE DETECTOR', 'error') end
+  if shown > layout.max_errors then add(string.format('(+%d more errors)', shown - layout.max_errors), 'error') end
+  if shown > 0 then raise('DETECTOR ERROR', 'error') end
 
   local status = clean(state.status, 60)
-  if status then add('Estado: '..status, 'info') end
+  if status then add('Status: '..status, 'info') end
 
   return {
     schema = M.SCHEMA_VERSION,
-    title = 'Rice Trials - PROVISIONAL / CSP no validado',
+    title = 'Rice Trials - PROVISIONAL / CSP not validated',
     banner = banner,
     lines = lines,
     layout = layout,

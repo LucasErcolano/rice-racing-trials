@@ -124,13 +124,13 @@ class GeometryTests(unittest.TestCase):
             folder = make_track(Path(tmp) / TRACK)
             (folder / 'data/surfaces.ini').write_text('[SURFACE_0]\nKEY=ASPHALT\nIS_VALID_TRACK=0\n', encoding='utf-8')
             doc = geometry.extract(folder, TRACK)
-        self.assertEqual(doc['limits']['status'], 'no disponible')
+        self.assertEqual(doc['limits']['status'], 'not available')
 
     def test_cones_are_unconfirmed_clusters(self):
         cones = self.doc['cones']
-        self.assertEqual(cones['status'], 'candidato no confirmado')
+        self.assertEqual(cones['status'], 'unconfirmed candidate')
         self.assertEqual(len(cones['clusters']), 2)
-        self.assertTrue(all(c['status'] == 'candidato no confirmado' for c in cones['clusters']))
+        self.assertTrue(all(c['status'] == 'unconfirmed candidate' for c in cones['clusters']))
 
     def test_slalom_empty_with_warning_and_loaded_from_file(self):
         self.assertEqual(self.doc['slalom']['gates'], [])
@@ -161,7 +161,7 @@ class GeometryTests(unittest.TestCase):
         samples = [{'t': i * 0.1, 'x': 30 * math.cos(i / 10), 'z': 30 * math.sin(i / 10), 'y': 0} for i in range(80)]
         page = render.page(self.doc, telemetry.decimate(samples), telemetry.analyse(samples, self.doc['timing_gate']))
         self.assertIn('<svg', page)
-        self.assertIn('candidato no confirmado', page)
+        self.assertIn('unconfirmed candidate', page)
         for forbidden in ('<script', 'http://', 'https://', '@import', 'src='):
             self.assertNotIn(forbidden, page.replace('http://www.w3.org/2000/svg', ''))
 
@@ -288,13 +288,13 @@ class DummyPatchTests(unittest.TestCase):
             original = (folder / 'Dummy.kn5').read_bytes()
             candidate, manifest = dummy_patch.build(folder, TRACK)
             self.assertEqual((folder / 'Dummy.kn5').read_bytes(), original, 'original must never be modified')
-        self.assertEqual(manifest['label'], 'CANDIDATO NO VERIFICADO EN JUEGO')
+        self.assertEqual(manifest['label'], 'CANDIDATE NOT VERIFIED IN GAME')
         self.assertEqual(manifest['original_sha256'], hashlib.sha256(original).hexdigest())
         self.assertTrue(all(manifest['verification_linux'].values()))
         self.assertEqual(len(candidate), len(original))
         change = manifest['changes'][0]
         self.assertEqual(change['node'], 'AC_START_0')
-        self.assertEqual(change['new_side_of_line'], 'después de la línea (ya cruzada)')
+        self.assertEqual(change['new_side_of_line'], 'after the line (already crossed)')
         self.assertEqual(change['surface_under_new_position']['key'], 'ASPHALT')
         marks = geometry.landmarks(kn5.parse(candidate))
         self.assertEqual(marks['AC_TIME_0_L'], geometry.landmarks(kn5.parse(original))['AC_TIME_0_L'])

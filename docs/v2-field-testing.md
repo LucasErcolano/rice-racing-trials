@@ -1,68 +1,68 @@
-# V2: pruebas de campo, resultados provisionales
+# V2: field testing, provisional results
 
-Esta versión es opt-in y no reemplaza ni despliega la V1 operativa. No está lista para competencia oficial. Usar una base SQLite, puerto y directorio separados para V2. El scoring oficial permanece desarmado.
+This version is opt-in and does not replace or deploy over the operational V1. It is not ready for official competition. Use a separate SQLite database, port and directory for V2. Official scoring stays disarmed.
 
-## Instalación breve en Windows
+## Quick installation on Windows
 
-1. Descargar el ZIP **complete-win64**, verificar su SHA-256 con `Get-FileHash -Algorithm SHA256` contra `SHA256SUMS.txt` y extraerlo a una carpeta nueva. No ejecutar desde el ZIP.
-2. Mantener la instalación V1 y respaldar la app antes de instalar. Cerrar AC antes de cambiar la app para no perder una vuelta por hot reload.
-3. Preparar credenciales DPAPI con `configure-secrets.ps1` como indica `deployment.md`; el archivo de credenciales y la base deben estar fuera del directorio de release. Nunca enviar tokens en reportes ni capturas.
-4. Lanzar una instancia de pruebas, con base nueva y puerto separado:
+1. Download the **complete-win64** ZIP, verify its SHA-256 with `Get-FileHash -Algorithm SHA256` against `SHA256SUMS.txt` and extract it to a new folder. Do not run from inside the ZIP.
+2. Keep the V1 installation and back up the app before installing. Close AC before changing the app so a lap is not lost to a hot reload.
+3. Prepare DPAPI credentials with `configure-secrets.ps1` as described in `deployment.md`; the credentials file and the database must live outside the release directory. Never include tokens in reports or screenshots.
+4. Launch a test instance with a new database and a separate port:
 
 ```powershell
 .\start-server.ps1 -SecretsPath 'C:\RiceV2Data\secrets.xml' -DatabasePath 'C:\RiceV2Data\field.sqlite' -Port 8082 -EnablePenaltiesV2
 ```
 
-Para registrar una tarea de pruebas usar un `-TaskName RiceTrialsV2Field` separado y pasar `-EnablePenaltiesV2` a `server-admin.ps1 -Action RegisterTask`. No modificar la tarea de V1.
+To register a test task, use a separate `-TaskName RiceTrialsV2Field` and pass `-EnablePenaltiesV2` to `server-admin.ps1 -Action RegisterTask`. Do not modify the V1 task.
 
-5. Crear sesión, piloto y asignación de pruebas en `/admin` de esta instancia. Instalar el cliente con backup explícito:
+5. Create a test session, driver and assignment in this instance's `/admin`. Install the client with an explicit backup:
 
 ```powershell
-.\install.ps1 -AssettoRoot 'C:\...\assettocorsa' -StationId ST01 -ServerUrl 'http://<IP-LAN-del-servidor>:8082' -BackupDirectory 'C:\RiceV2Data\backups' -SkipArchiveHashes -RouteConfig '.\track-config\FSAEJ_Endurance.route_config.lua' -ConeConfig '.\track-config\cone_config.lua' -EnableDiagnostics -ProtocolV2
+.\install.ps1 -AssettoRoot 'C:\...\assettocorsa' -StationId ST01 -ServerUrl 'http://<server-LAN-IP>:8082' -BackupDirectory 'C:\RiceV2Data\backups' -SkipArchiveHashes -RouteConfig '.\track-config\FSAEJ_Endurance.route_config.lua' -ConeConfig '.\track-config\cone_config.lua' -EnableDiagnostics -ProtocolV2
 ```
 
-`-SkipArchiveHashes` omite la verificación de origen de los mods instalados; no valida sus bytes. V2 está apagado por defecto sin `-ProtocolV2` y sin `-EnablePenaltiesV2`. Nunca copiar `station_config.lua` a un ZIP ni a GitHub. La pista y el auto se obtienen aparte, no están incluidos.
+`-SkipArchiveHashes` skips the origin check of the installed mods; it does not validate their bytes. V2 is off by default without `-ProtocolV2` and `-EnablePenaltiesV2`. Never copy `station_config.lua` into a ZIP or to GitHub. The track and the car are obtained separately and are not included.
 
-## Protocolo OR y revisión
+## OR protocol and review
 
-Los canales nativo y penalizado tienen persistencia y reintentos separados. El canal nativo no depende de que el análisis o envío de penalizaciones funcione. Una nativa sin evidencia de penalizaciones se conserva como `PENALTIES_PENDING`, nunca se interpreta como cero penalizaciones. Las vueltas se reconcilian por identidad estable, no por cercanía de tiempos. Contradicciones, evidencia incompleta o identidad ambigua requieren revisión manual. Los tiempos calculados son previsualizaciones provisionales, no clasificación oficial.
+The native and penalized channels have separate persistence and retries. The native channel does not depend on penalty analysis or submission working. A native lap without penalty evidence is kept as `PENALTIES_PENDING` and is never read as zero penalties. Laps are reconciled by stable identity, not by closeness of times. Contradictions, incomplete evidence or ambiguous identity require manual review. Calculated times are provisional previews, not an official leaderboard.
 
-La independencia es de colas y transporte dentro del cliente: ambos canales comparten AC, CSP, la app, el disco y el equipo. Si ese runtime no captura la vuelta, no hay un segundo cronometraje externo garantizado. El journal nativo es el fallback local disponible, no una integración confirmada con Velocity.
+The independence is between queues and transport inside the client: both channels share AC, CSP, the app, the disk and the machine. If that runtime does not capture the lap, there is no guaranteed second, external timing source. The native journal is the available local fallback, not a confirmed Velocity integration.
 
-Cada fila trae `penalty_evidence_state` (columna "Penalizaciones" en la TV) y `disabled_penalties`:
+Each row carries `penalty_evidence_state` ("Penalties" column on the TV) and `disabled_penalties`:
 
-| Estado | Significado |
+| Status | Meaning |
 | --- | --- |
-| `ABSENT` | Sólo llegó la nativa. Penalizaciones pendientes, nunca cero. |
-| `INCOMPLETE` | Llegó evidencia pero falta o es inválida (detector, calibración, eventos sin resolver). |
-| `ZERO_INCIDENTS` | Evidencia completa y sin incidentes penalizables. |
-| `PENALIZED` | Evidencia completa con penalización calculada en el servidor. |
-| `PENALTIES_DISABLED` | Hubo incidentes registrados, pero su penalización estaba deshabilitada. La evidencia se conserva. |
-| `CONFLICT` | Los mensajes se contradicen. Va a revisión manual sin tiempo corregido. |
+| `ABSENT` | Only the native lap arrived. Penalties pending, never zero. |
+| `INCOMPLETE` | Evidence arrived but is missing or invalid (detector, calibration, unresolved events). |
+| `ZERO_INCIDENTS` | Complete evidence with no penalizable incidents. |
+| `PENALIZED` | Complete evidence with a penalty calculated by the server. |
+| `PENALTIES_DISABLED` | Incidents were recorded, but their penalty was disabled. The evidence is kept. |
+| `CONFLICT` | The messages contradict each other. Goes to manual review without a corrected time. |
 
-## Pantalla propia y verificación de campo
+## Dedicated display and field verification
 
-Abrir `http://<IP-LAN-del-servidor>:8082/v2/field` en la TV. Ingresar el token admin de la instancia V2 (no va en la URL). Se conserva sólo en memoria. La pantalla actualiza cada 3 segundos y muestra una única fila por estación/sesión/vuelta, bruto nativo, previsualización corregida y razones de revisión. `/admin` y `/tv` conservan la V1 y NO son el monitor provisional. Los paquetes incluyen rutas y conos de Endurance para empezar; pueden ajustarse durante las pruebas. No hace falta una API de Velocity.
+Open `http://<server-LAN-IP>:8082/v2/field` on the TV. Enter the admin token of the V2 instance (it does not go in the URL). It is kept in memory only. The display refreshes every 3 seconds and shows a single row per station/session/lap, the native raw time, the corrected preview and the review reasons. `/admin` and `/tv` keep the V1 behavior and are NOT the provisional monitor. The packages include Endurance routes and cones to get started; they can be adjusted during testing. No Velocity API is needed.
 
-La previsualización se recalcula en el servidor desde eventos y settings, incluso sin calibración final. No equivale a evidencia validada: ningún `detector_ok` o `calibration_verified` enviado por el cliente verifica la vuelta por sí solo.
+The preview is recalculated on the server from events and settings, even without final calibration. It is not validated evidence: no `detector_ok` or `calibration_verified` sent by the client verifies the lap on its own.
 
-Después de inspeccionar la evidencia exportada, el operador puede dar una **atestación manual de campo**, sin habilitar clasificación oficial:
+After inspecting the exported evidence, the operator can give a **manual field attestation**, without enabling an official leaderboard:
 
-- `POST /api/admin/v2/field-review` con Bearer admin y JSON `{"station_id":"ST01","session_id":"S1","lap_id":"<id-exacto>","approved":true,"reviewer":"operador","reason":"Motivo concreto de la revisión de la evidencia"}`.
-- Pasa a `VERIFIED_PROVISIONAL`, `evidence_verified=true`, conserva `corrected_ms=null`, `final_ms=null` y `official=false`. La pantalla muestra la corregida mediante `preview_ms`. Esto certifica sólo la revisión humana declarada, no una calibración física automática.
-- `approved:false` revoca la atestación. Cada decisión persiste con fecha, motivo, revisor y SHA-256 del mensaje penalizado exacto. Historial: `GET /api/admin/v2/field-reviews?station_id=ST01&session_id=S1&lap_id=<id-exacto>`.
-- Una nativa sin penalizaciones no se puede verificar. Las inconsistencias invalidan cualquier atestación y permanecen en revisión, sin previsualización ni promoción oficial.
+- `POST /api/admin/v2/field-review` with the admin Bearer token and JSON `{"station_id":"ST01","session_id":"S1","lap_id":"<exact-id>","approved":true,"reviewer":"operator","reason":"Specific reason from the evidence review"}`.
+- The lap moves to `VERIFIED_PROVISIONAL`, `evidence_verified=true`, and keeps `corrected_ms=null`, `final_ms=null` and `official=false`. The display shows the corrected time through `preview_ms`. This certifies only the declared human review, not an automatic physical calibration.
+- `approved:false` revokes the attestation. Each decision is persisted with date, reason, reviewer and the SHA-256 of the exact penalized message. History: `GET /api/admin/v2/field-reviews?station_id=ST01&session_id=S1&lap_id=<exact-id>`.
+- A native lap without penalties cannot be verified. Inconsistencies invalidate any attestation and stay in review, with no preview and no official promotion.
 
-Exportación completa: `GET /api/admin/v2/field-export.json` o `.csv`, con Bearer admin. Los dos mensajes originales y la evidencia se conservan. No se deducen ceros de penalización de evidencia ausente.
+Full export: `GET /api/admin/v2/field-export.json` or `.csv`, with the admin Bearer token. Both original messages and the evidence are kept. Zero penalties are never inferred from missing evidence.
 
-## Diagnóstico y reporte
+## Diagnostics and reporting
 
-Conservar el directorio `apps\lua\RiceTrials\state` y los logs de diagnóstico del cliente, además de los logs del servidor en el directorio de datos externo. Antes de compartir, quitar `station_config.lua`, credenciales DPAPI, tokens y datos personales. Para un bug registrar estación, sesión, piloto, circuito, lap_id, bruto nativo, bruto del detector, eventos locales, configuración de penalizaciones, estado de las dos colas y hora. Exportar las vueltas provisionales con la evidencia almacenada. No editar manualmente los journals A/B.
+Keep the `apps\lua\RiceTrials\state` directory and the client diagnostic logs, plus the server logs in the external data directory. Before sharing, remove `station_config.lua`, DPAPI credentials, tokens and personal data. For a bug, record station, session, driver, track, lap_id, native raw time, detector raw time, local events, penalty settings, status of both queues and the time. Export the provisional laps with the stored evidence. Do not edit the A/B journals by hand.
 
 ## Rollback
 
-Detener sólo la tarea V2 con `server-admin.ps1 -Action Stop -TaskName RiceTrialsV2Field -Port 8082` y los parámetros de datos de esa instancia. No matar únicamente el exe: el supervisor lo vuelve a levantar. Con AC cerrado, restaurar el backup de app mediante `install.ps1 -Rollback '<backup>' -BackupDirectory '<carpeta existente>'`. Mantener la base de pruebas como evidencia; no abrirla con V1 ni sobrescribir la base operativa. No se modifican archivos de pista, auto o CSP.
+Stop only the V2 task with `server-admin.ps1 -Action Stop -TaskName RiceTrialsV2Field -Port 8082` and that instance's data parameters. Do not kill only the exe: the supervisor brings it back. With AC closed, restore the app backup with `install.ps1 -Rollback '<backup>' -BackupDirectory '<existing folder>'`. Keep the test database as evidence; do not open it with V1 or overwrite the operational database. Track, car and CSP files are not modified.
 
-## Gates de validación
+## Validation gates
 
-`Dummy.kn5`: validado en AC por confirmación explícita del usuario. Esto no valida los detectores V2 ni la calibración física. Las pruebas automatizadas Linux y Windows no sustituyen una sesión real CSP. La calibración final no bloquea recopilar vueltas, pero sí su uso oficial. Ver `test-report.md`, `windows-validation.md` y `velocity-integration.md` para evidencia y límites de esta entrega.
+`Dummy.kn5`: validated in AC by explicit user confirmation. This does not validate the V2 detectors or the physical calibration. Automated Linux and Windows tests do not replace a real CSP session. Final calibration does not block collecting laps, but it does block their official use. See `test-report.md`, `windows-validation.md` and `velocity-integration.md` for the evidence and limits of this delivery.

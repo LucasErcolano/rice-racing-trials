@@ -82,10 +82,10 @@ def cmd_export_route(args):
     document = json.loads(Path(args.geometry).read_text(encoding='utf-8'))
     if args.checkpoints:
         checkpoints = route_export.load_checkpoints(args.checkpoints, document['track'])
-        source = f'archivo de calibración {Path(args.checkpoints).name}'
+        source = f'calibration file {Path(args.checkpoints).name}'
     elif args.ai_candidates:
         checkpoints = route_export.checkpoints_from_ai(document['ai_path'], args.ai_candidates, args.width)
-        source = 'CANDIDATOS generados desde fast_lane.ai (no son puertas oficiales)'
+        source = 'CANDIDATES generated from fast_lane.ai (not official gates)'
     else:
         raise SystemExit('need --checkpoints FILE or --ai-candidates N')
     lua, summary = route_export.build(document, checkpoints, approve=args.approve, operator=args.operator,

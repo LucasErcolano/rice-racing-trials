@@ -1,6 +1,6 @@
 """Candidate Dummy.kn5 patches for the native first-lap problem (§8.B).
 
-CANDIDATO NO VERIFICADO EN JUEGO. Linux can only prove file integrity:
+CANDIDATE NOT VERIFIED IN GAME. Linux can only prove file integrity:
 - the original parses and re-serialises byte for byte (round trip);
 - only the 64-byte matrix spans of the chosen nodes change;
 - the candidate re-parses and the new world positions/headings are as requested;
@@ -18,7 +18,7 @@ except ImportError:
     import geometry
     import kn5
 
-LABEL = 'CANDIDATO NO VERIFICADO EN JUEGO'
+LABEL = 'CANDIDATE NOT VERIFIED IN GAME'
 
 
 def spawn_matrix(original, x, y, z, forward):
@@ -216,8 +216,8 @@ def build(source, track_id, nodes=('AC_START_0',), after_line_m=8.0, pit_extra_m
         checks.append(abs(got['x'] - want[0]) < 1e-3 and abs(got['z'] - want[2]) < 1e-3)
         new_gate_side = geometry.side((got['x'], got['z']), (gate['a']['x'], gate['a']['z']),
                                       (gate['b']['x'], gate['b']['z']))
-        change['new_side_of_line'] = 'después de la línea (ya cruzada)' if gate['direction'] * new_gate_side >= 0 \
-            else 'antes de la línea'
+        change['new_side_of_line'] = 'after the line (already crossed)' if gate['direction'] * new_gate_side >= 0 \
+            else 'before the line'
     untouched = all(new_marks[n] == marks[n] for n in marks if n not in [c['node'] for c in changes])
     spawn = marks['AC_START_0']
     manifest = {
@@ -239,9 +239,9 @@ def build(source, track_id, nodes=('AC_START_0',), after_line_m=8.0, pit_extra_m
             'original_spawn_distance_to_ai_loop_m': round(min_distance(path, (spawn['x'], spawn['z'])), 2),
             'ai_crossing_point': [round(crossing[0], 3), round(crossing[1], 3)],
         },
-        'not_verified': ['Que AC use la nueva posición en Practice', 'Que desaparezca la vuelta de ~18 s',
-                         'Que la primera vuelta completa se registre correctamente',
-                         'Checksums de servidor online (no aplica en offline)'],
+        'not_verified': ['That AC uses the new position in Practice', 'That the ~18 s lap disappears',
+                         'That the first full lap is recorded correctly',
+                         'Online server checksums (not applicable offline)'],
     }
     if not all(manifest['verification_linux'].values()):
         raise ValueError('candidate failed Linux integrity checks: ' + json.dumps(manifest['verification_linux']))

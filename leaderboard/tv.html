@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Rice Racing · Clasificación</title>
+<title>Rice Racing · Leaderboard</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/tv.css">
 </head>
@@ -10,39 +10,39 @@
 <header class="top">
   <div class="brand"><span class="logo">RICE RACING</span><span class="sub">Driver Trials</span></div>
   <div class="session">
-    <span class="label">Sesión</span>
-    <select id="session" aria-label="Sesión"></select>
+    <span class="label">Session</span>
+    <select id="session" aria-label="Session"></select>
     <span id="session-name" class="session-name"></span>
-    <span id="session-active" class="badge" hidden>ACTIVA</span>
+    <span id="session-active" class="badge" hidden>ACTIVE</span>
   </div>
   <div class="status">
-    <div id="connection" class="connection" data-state="connecting" role="status">Conectando…</div>
-    <div class="updated">Última actualización: <span id="updated">--:--:--</span></div>
+    <div id="connection" class="connection" data-state="connecting" role="status">Connecting…</div>
+    <div class="updated">Last update: <span id="updated">--:--:--</span></div>
   </div>
 </header>
-<div id="banner" class="banner" hidden role="alert">SCORING NO COMISIONADO: resultados provisionales, no oficiales</div>
+<div id="banner" class="banner" hidden role="alert">SCORING NOT COMMISSIONED: provisional, unofficial results</div>
 <main class="grid">
   <section class="ranking">
     <div class="ranking-head">
-      <h1 id="event-title">Clasificación</h1>
-      <nav id="events" class="events" aria-label="Pruebas"></nav>
+      <h1 id="event-title">Leaderboard</h1>
+      <nav id="events" class="events" aria-label="Events"></nav>
     </div>
     <table class="board">
-      <thead><tr><th class="pos">#</th><th>Piloto</th><th class="num">Mejor corregida</th><th class="num">Bruto</th><th>Penalidades</th><th class="num">Dif. líder</th><th class="num">Vueltas</th></tr></thead>
+      <thead><tr><th class="pos">#</th><th>Driver</th><th class="num">Best Corrected</th><th class="num">Raw</th><th>Penalties</th><th class="num">Gap</th><th class="num">Laps</th></tr></thead>
       <tbody id="results"></tbody>
     </table>
     <p id="message" class="message" role="status"></p>
   </section>
   <aside class="side">
-    <h2>Estaciones</h2>
+    <h2>Stations</h2>
     <ul id="stations" class="stations"></ul>
-    <h2>Diagnóstico</h2>
+    <h2>Diagnostics</h2>
     <p id="diagnostics" class="diagnostics"></p>
-    <h2>Últimas vueltas <small>(provisionales: no oficiales salvo VALID)</small></h2>
-    <table class="recent"><thead><tr><th>Est.</th><th>Piloto</th><th>Estado</th><th class="num">Bruto</th></tr></thead><tbody id="recent-laps"></tbody></table>
+    <h2>Recent laps <small>(provisional: unofficial unless VALID)</small></h2>
+    <table class="recent"><thead><tr><th>Stn.</th><th>Driver</th><th>Status</th><th class="num">Raw</th></tr></thead><tbody id="recent-laps"></tbody></table>
   </aside>
 </main>
-<footer class="foot">Sólo vueltas VALID oficiales entran al ranking. Orden: tiempo corregido, luego bruto, luego vuelta más temprana. Reglas v<span id="rules-version">?</span>.</footer>
+<footer class="foot">Only official VALID laps are ranked. Order: corrected time, then raw time, then earliest lap. Rules v<span id="rules-version">?</span>.</footer>
 <script src="/tv.js"></script>
 </body>
 </html>

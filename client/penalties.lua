@@ -7,7 +7,7 @@
 local M = {}
 M.VERSION = 1
 M.KEYS = {'cone', 'off_course', 'slalom'}
-M.LABELS = {cone = 'Conos', off_course = 'Off-track', slalom = 'Slalom omitido'}
+M.LABELS = {cone = 'Cones', off_course = 'Off-track', slalom = 'Missed slalom'}
 M.MAX_S = 60
 -- An off-track that starts this close (game seconds) to a missed slalom gate is the same
 -- incident: only the slalom penalty is charged (while the slalom penalty is on).
@@ -165,25 +165,25 @@ end
 function M.draw(store, ui, ac, dt)
   if type(store) ~= 'table' or type(ui) ~= 'table' then return false end
   store:flush(dt)
-  ui.text('Configuracion de penalizaciones')
+  ui.text('Penalty settings')
   for _, k in ipairs(M.KEYS) do
     local e = store.cfg[k]
     if ui.button((e.on and '[x] ' or '[ ] ')..M.LABELS[k]..'##on_'..k) then store:set(k, 'on', not e.on) end
     if ui.sameLine then ui.sameLine(150) end
     if ui.setNextItemWidth then ui.setNextItemWidth(130) end
-    local v, changed = ui.slider('##s_'..k, e.s, 0, M.MAX_S, '%.1f seg.')
+    local v, changed = ui.slider('##s_'..k, e.s, 0, M.MAX_S, '%.1f s')
     if changed and finite(v) then store:set(k, 's', v) end
   end
-  if ui.button('Restaurar FSAE##reset') then store:reset() end
+  if ui.button('Reset to FSAE##reset') then store:reset() end
   if ui.sameLine then ui.sameLine() end
-  if ui.button('Copiar configuracion##copy') and ac and type(ac.setClipboardText) == 'function' then
+  if ui.button('Copy settings##copy') and ac and type(ac.setClipboardText) == 'function' then
     local text = store:json()
     if text then pcall(ac.setClipboardText, text) end
   end
-  ui.text('Aplica al cerrar cada vuelta; no recalcula vueltas anteriores.')
-  ui.text('Apagada = se detecta y se registra, pero suma 0 s.')
-  ui.text(string.format('Off-track a menos de %d s de un slalom omitido: se cobra una vez.', M.DEDUPE_WINDOW_S))
-  ui.text('Guardado: '..tostring(store.state)..(store.error and (' ('..store.error..')') or ''))
+  ui.text('Applied when each lap ends; earlier laps are not recalculated.')
+  ui.text('Off = detected and logged, but adds 0 s.')
+  ui.text(string.format('Off-track within %d s of a missed slalom: charged once.', M.DEDUPE_WINDOW_S))
+  ui.text('Saved: '..tostring(store.state)..(store.error and (' ('..store.error..')') or ''))
   return true
 end
 

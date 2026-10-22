@@ -144,7 +144,7 @@ class Harness:
         # The HUD model is cached for 0.25 s (client/hud.lua): let it refresh, car parked.
         self.run(0.3, move=False, draw_every=0)
         text = self.draw()
-        return next((line[len('Estado: '):] for line in text if line.startswith('Estado: ')),
+        return next((line[len('Status: '):] for line in text if line.startswith('Status: ')),
                     text[1] if len(text) > 1 else None)
 
     def hud(self):

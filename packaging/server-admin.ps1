@@ -1,19 +1,19 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-  Operación del servidor portable RiceTrials en Windows (sin servicio instalado).
+  Operation of the portable RiceTrials server on Windows (no installed service).
 .DESCRIPTION
-  -Action NetworkCheck      IP locales, puerto en escucha, Test-NetConnection, perfil de red, reglas de firewall.
-  -Action FirewallRule      crea (o con -Remove borra) una regla entrante TCP sólo en perfil Private (requiere admin).
-  -Action RegisterTask      tarea programada "Al iniciar el sistema" que ejecuta start-server.ps1 (pide la cuenta de forma
-                            interactiva con Get-Credential; la contraseña nunca va en la línea de comandos).
-  -Action UnregisterTask    borra la tarea.
-  -Action Stop              detiene la tarea, el supervisor start-server.ps1 y el exe, y verifica que el puerto quede libre
-                            (matar sólo RiceTrialsServer.exe no alcanza: el supervisor lo relanza).
-  -Action Backup            backup en caliente vía /api/admin/backup (token admin pedido con -AsSecureString).
-  -Action Check             RiceTrialsServer.exe --db <db> --check (offline, integridad SQLite).
-  -Action Restore           detiene la tarea, ejecuta RiceTrialsServer.exe --db <db> --restore <archivo>, reanuda la tarea.
-                            El servidor guarda una copia pre-restore en <db>\..\backups antes de reemplazar.
+  -Action NetworkCheck      local IPs, listening port, Test-NetConnection, network profile, firewall rules.
+  -Action FirewallRule      creates (or with -Remove deletes) an inbound TCP rule on the Private profile only (requires admin).
+  -Action RegisterTask      "At system startup" scheduled task that runs start-server.ps1 (asks for the account
+                            interactively with Get-Credential; the password never goes on the command line).
+  -Action UnregisterTask    deletes the task.
+  -Action Stop              stops the task, the start-server.ps1 supervisor and the exe, and verifies the port is free
+                            (killing only RiceTrialsServer.exe is not enough: the supervisor relaunches it).
+  -Action Backup            hot backup via /api/admin/backup (admin token prompted with -AsSecureString).
+  -Action Check             RiceTrialsServer.exe --db <db> --check (offline, SQLite integrity).
+  -Action Restore           stops the task, runs RiceTrialsServer.exe --db <db> --restore <file>, resumes the task.
+                            The server keeps a pre-restore copy in <db>\..\backups before replacing.
 #>
 param(
     [Parameter(Mandatory=$true)][ValidateSet('NetworkCheck','FirewallRule','RegisterTask','UnregisterTask','Stop','Backup','Check','Restore')][string]$Action,
@@ -87,7 +87,7 @@ public static class Lsa {
     }
     $bytes = New-Object byte[] ($sid.BinaryLength); $sid.GetBinaryForm($bytes, 0)
     [RiceTrials.Lsa]::AddRight($bytes, 'SeBatchLogonRight')
-    Write-Host "Derecho 'Iniciar sesión como proceso por lotes' (SeBatchLogonRight) otorgado a $userName ($($sid.Value))."
+    Write-Host "Right 'Log on as a batch job' (SeBatchLogonRight) granted to $userName ($($sid.Value))."
 }
 function Stop-RiceServer {
     # Supervisor first (it would relaunch the exe), then the exe. Only processes of THIS release are touched.
@@ -96,10 +96,10 @@ function Stop-RiceServer {
     $launcherScript = Join-Path $scriptRoot 'start-server.ps1'
     Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" |
         Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -and $_.CommandLine.IndexOf($launcherScript, [StringComparison]::OrdinalIgnoreCase) -ge 0 } |
-        ForEach-Object { Write-Host "Deteniendo supervisor pid $($_.ProcessId)"; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        ForEach-Object { Write-Host "Stopping supervisor pid $($_.ProcessId)"; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     $exeFull = [IO.Path]::GetFullPath($ServerExe)
     Get-Process RiceTrialsServer -ErrorAction SilentlyContinue | Where-Object { $_.Path -and ([IO.Path]::GetFullPath($_.Path) -ieq $exeFull) } |
-        ForEach-Object { Write-Host "Deteniendo servidor pid $($_.Id)"; Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+        ForEach-Object { Write-Host "Stopping server pid $($_.Id)"; Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
     $deadline = (Get-Date).AddSeconds(20)
     while ((Get-Date) -lt $deadline -and @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue).Count -gt 0) { Start-Sleep -Milliseconds 500 }
     if (@(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue).Count -gt 0) { throw "Something still listens on $Port after stopping" }
@@ -108,34 +108,34 @@ function Quote([string]$value) { return '"' + $value + '"' }
 
 switch ($Action) {
     'NetworkCheck' {
-        Write-Host '== IPv4 locales (usar la de la red del evento en ServerUrl de las estaciones)'
+        Write-Host '== Local IPv4 addresses (use the event network one in the stations ServerUrl)'
         Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne '127.0.0.1' } |
             Format-Table InterfaceAlias, IPAddress, PrefixLength -AutoSize
-        Write-Host '== Perfil de red (la regla de firewall de este kit sólo aplica a Private)'
+        Write-Host '== Network profile (this kit firewall rule applies to Private only)'
         Get-NetConnectionProfile | Format-Table InterfaceAlias, Name, NetworkCategory -AutoSize
-        Write-Host "== Proceso escuchando en TCP $Port"
+        Write-Host "== Process listening on TCP $Port"
         $listen = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
-        if ($listen.Count -eq 0) { Write-Warning "Nadie escucha en $Port (¿servidor detenido?)" }
+        if ($listen.Count -eq 0) { Write-Warning "Nothing listens on $Port (server stopped?)" }
         else { $listen | ForEach-Object { "{0}:{1} pid={2} ({3})" -f $_.LocalAddress, $_.LocalPort, $_.OwningProcess, (Get-Process -Id $_.OwningProcess).ProcessName } }
         Write-Host "== Test-NetConnection $HostAddress : $Port"
         $test = Test-NetConnection -ComputerName $HostAddress -Port $Port -WarningAction SilentlyContinue
         "TcpTestSucceeded={0} RemoteAddress={1}" -f $test.TcpTestSucceeded, $test.RemoteAddress
         if ($test.TcpTestSucceeded) {
             try { $r = Invoke-WebRequest -Uri "http://${HostAddress}:$Port/tv" -UseBasicParsing -TimeoutSec 5; "GET /tv -> $($r.StatusCode)" }
-            catch { Write-Warning "GET /tv falló: $_" }
+            catch { Write-Warning "GET /tv failed: $_" }
         }
-        Write-Host '== Reglas de firewall de este kit'
+        Write-Host '== Firewall rules of this kit'
         Get-NetFirewallRule -DisplayName 'RiceTrials Server*' -ErrorAction SilentlyContinue | Format-Table DisplayName, Enabled, Profile, Direction, Action -AutoSize
-        Write-Host 'Desde cada estación: Test-NetConnection <IP-servidor> -Port' $Port
+        Write-Host 'From each station: Test-NetConnection <server-IP> -Port' $Port
     }
     'FirewallRule' {
         Assert-Administrator
-        if ($Remove) { Remove-NetFirewallRule -DisplayName $ruleName -ErrorAction Stop; Write-Host "Regla eliminada: $ruleName"; return }
-        if (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue) { Write-Host "Ya existe: $ruleName"; return }
+        if ($Remove) { Remove-NetFirewallRule -DisplayName $ruleName -ErrorAction Stop; Write-Host "Rule removed: $ruleName"; return }
+        if (Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue) { Write-Host "Already exists: $ruleName"; return }
         New-NetFirewallRule -DisplayName $ruleName -Direction Inbound -Action Allow -Protocol TCP -LocalPort $Port `
             -Profile Private -RemoteAddress $RemoteSubnet -Program $ServerExe | Out-Null
-        Write-Host "Regla creada: $ruleName (TCP $Port, perfil Private, origen $RemoteSubnet, programa $ServerExe)"
-        Write-Host 'Si la red del evento figura como Public, cambiarla a Private (Configuración > Red) en vez de abrir el perfil Public.'
+        Write-Host "Rule created: $ruleName (TCP $Port, Private profile, source $RemoteSubnet, program $ServerExe)"
+        Write-Host 'If the event network shows as Public, change it to Private (Settings > Network) instead of opening the Public profile.'
     }
     'RegisterTask' {
         Assert-Administrator; Assert-DatabasePath
@@ -149,21 +149,21 @@ switch ($Action) {
         $trigger = New-ScheduledTaskTrigger -AtStartup
         $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable
         # DPAPI secrets only decrypt under the account that ran configure-secrets.ps1: use that same account here.
-        $credential = Get-Credential -Message 'Cuenta dedicada del servidor (la misma que ejecutó configure-secrets.ps1)'
+        $credential = Get-Credential -Message 'Dedicated server account (the same one that ran configure-secrets.ps1)'
         Grant-BatchLogonRight $credential.UserName
         Register-ScheduledTask -TaskName $TaskName -Action $taskAction -Trigger $trigger -Settings $settings `
             -User $credential.UserName -Password $credential.GetNetworkCredential().Password -RunLevel Limited | Out-Null
         $credential = $null
-        Write-Host "Tarea '$TaskName' registrada (al iniciar el sistema, reinicio ante fallo). Probar: Start-ScheduledTask -TaskName $TaskName; reiniciar el equipo y revisar el historial."
+        Write-Host "Task '$TaskName' registered (at system startup, restart on failure). Test: Start-ScheduledTask -TaskName $TaskName; reboot the machine and check the history."
     }
     'Stop' {
         Stop-RiceServer
-        Write-Host "Servidor detenido; nada escucha en $Port. Para volver a arrancarlo: Start-ScheduledTask -TaskName $TaskName"
+        Write-Host "Server stopped; nothing listens on $Port. To start it again: Start-ScheduledTask -TaskName $TaskName"
     }
     'UnregisterTask' {
         Assert-Administrator
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
-        Write-Host "Tarea '$TaskName' eliminada."
+        Write-Host "Task '$TaskName' removed."
     }
     'Backup' {
         $token = Read-Host 'Admin token' -AsSecureString
@@ -172,7 +172,7 @@ switch ($Action) {
             $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
             $response = Invoke-RestMethod -Method Post -Uri "http://${HostAddress}:$Port/api/admin/backup" -Headers @{ Authorization = "Bearer $plain" } -ContentType 'application/json' -Body '{}' -TimeoutSec 60
         } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr); $plain = $null; $token = $null }
-        Write-Host "Backup creado por el servidor: $($response.path)"
+        Write-Host "Backup created by the server: $($response.path)"
         if (Test-Path -LiteralPath $response.path -PathType Leaf) { Get-FileHash -LiteralPath $response.path -Algorithm SHA256 | Format-List }
     }
     'Check' {
@@ -186,10 +186,10 @@ switch ($Action) {
         $wasRunning = $task -and $task.State -eq 'Running'
         if ($wasRunning) { Stop-RiceServer }
         if (@(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue).Count -gt 0) { throw "Something still listens on $Port; stop the server before restoring" }
-        $answer = Read-Host "Restaurar $BackupFile sobre $DatabasePath? Escriba RESTORE"
+        $answer = Read-Host "Restore $BackupFile over $DatabasePath? Type RESTORE"
         if ($answer -cne 'RESTORE') { throw 'Cancelled' }
         Invoke-Server @('--db', (Quote $DatabasePath), '--restore', (Quote $BackupFile))
         Invoke-Server @('--db', (Quote $DatabasePath), '--check')
-        if ($wasRunning) { Start-ScheduledTask -TaskName $TaskName; Write-Host "Tarea '$TaskName' reanudada." }
+        if ($wasRunning) { Start-ScheduledTask -TaskName $TaskName; Write-Host "Task '$TaskName' resumed." }
     }
 }

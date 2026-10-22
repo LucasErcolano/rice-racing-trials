@@ -19,7 +19,7 @@ if (Test-Path -LiteralPath $receiptPath -PathType Leaf) {
     $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
     $known += @($receipt.files | ForEach-Object { $_.name })
 } else {
-    Write-Warning 'install-receipt.json ausente (instalación anterior a este instalador): se usan nombres conocidos'
+    Write-Warning 'install-receipt.json missing (installed before this installer): using known file names'
 }
 $targetFull = (Resolve-Path -LiteralPath $target).Path
 $foreign = @(Get-ChildItem -LiteralPath $targetFull -Recurse -File | Where-Object {
@@ -27,7 +27,7 @@ $foreign = @(Get-ChildItem -LiteralPath $targetFull -Recurse -File | Where-Objec
     -not (($known -contains $relative) -or ($relative -notmatch '[\\/]' -and $relative -like '*.lua') -or $relative -eq 'manifest.ini' -or $relative -like 'diagnostics*')
 })
 if ($foreign.Count -gt 0) {
-    Write-Warning ('Archivos no creados por el instalador: ' + (($foreign | ForEach-Object { $_.FullName.Substring($targetFull.Length).TrimStart('\', '/') }) -join ', '))
+    Write-Warning ('Files not created by the installer: ' + (($foreign | ForEach-Object { $_.FullName.Substring($targetFull.Length).TrimStart('\', '/') }) -join ', '))
     if (-not $BackupDirectory -and -not $Force) { throw 'Foreign files present: use -BackupDirectory (recommended) or -Force' }
 }
 if ($BackupDirectory) {

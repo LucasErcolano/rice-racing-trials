@@ -1,10 +1,10 @@
-# Diagnóstico del cliente (`client/diagnostics.lua`)
+# Client diagnostics (`client/diagnostics.lua`)
 
-Estado: **probado en Linux con un filesystem doble (dict) en lupa, Lua 5.4 y LuaJIT 2.1**. No se ejecutó dentro de CSP; el comportamiento real de `io.*` en Windows queda para el Windows Validation Kit. Integrado en `RiceTrials.lua`: se activa sólo con `diagnostics = true` en `station_config.lua` (las mismas claves `diagnostics_*` de abajo); apagado no toca `io`. Registra muestras del auto, resets de ruta con su motivo y el estado de conexión/cola.
+Status: **tested on Linux with a filesystem double (dict) in lupa, Lua 5.4 and LuaJIT 2.1**. Not run inside CSP; real `io.*` behavior on Windows is left to the Windows Validation Kit. Integrated in `RiceTrials.lua`: enabled only with `diagnostics = true` in `station_config.lua` (same `diagnostics_*` keys as below); when off it never touches `io`. It records car samples, route resets with their reason, and connection/queue state.
 
-## Activación
+## Enabling
 
-Sólo con `config.diagnostics == true`. En cualquier otro caso `diagnostics.new` devuelve un objeto inerte (`update`/`event` no hacen nada, `flush` devuelve `false`, `stats()` devuelve `{enabled=false}`) que no toca `io`.
+Only with `config.diagnostics == true`. In any other case `diagnostics.new` returns an inert object (`update`/`event` do nothing, `flush` returns `false`, `stats()` returns `{enabled=false}`) that never touches `io`.
 
 ## API
 
@@ -13,105 +13,105 @@ local diagnostics = require('diagnostics')
 local d = diagnostics.new(config, deps)
 -- config: diagnostics=true, diagnostics_dir, diagnostics_file, diagnostics_max_bytes,
 --         diagnostics_buffer_max, diagnostics_flush_s, diagnostics_sample_hz
--- deps (todo opcional):
---   io    = tabla con save/load/fileExists/createDir/deleteFile/move (default: global io)
---   env   = tabla con ac/io/web/JSON/ui para el informe de APIs y versiones (default: _G)
---   clock = fun(): segundos de simulación (default: suma de dt recibidos en update)
---   dir   = carpeta si config.diagnostics_dir falta
-d:update(dt, car, sim, extra)   -- desde script.update; car = ac.getCar(0), sim = ac.getSim()
-d:event(kind, fields)           -- registro puntual (p. ej. error de red)
-d:flush() -> boolean            -- fuerza escritura; también se llama cada flush_s
-d:stats() -> table              -- copia de contadores
+-- deps (all optional):
+--   io    = table with save/load/fileExists/createDir/deleteFile/move (default: global io)
+--   env   = table with ac/io/web/JSON/ui for the API and version report (default: _G)
+--   clock = fun(): simulation seconds (default: sum of dt received in update)
+--   dir   = folder if config.diagnostics_dir is missing
+d:update(dt, car, sim, extra)   -- from script.update; car = ac.getCar(0), sim = ac.getSim()
+d:event(kind, fields)           -- one-off record (e.g. a network error)
+d:flush() -> boolean            -- forces a write; also called every flush_s
+d:stats() -> table              -- copy of the counters
 ```
 
-`extra` (opcional): `{detector = <tabla o string>, connection = <tabla>, errors = {'texto', ...}}`. `detector` y `connection` se registran sólo cuando cambian (comparados a la frecuencia de muestreo, no por frame); cada elemento de `errors` se registra siempre.
+`extra` (optional): `{detector = <table or string>, connection = <table>, errors = {'text', ...}}`. `detector` and `connection` are recorded only when they change (compared at the sampling rate, not per frame); every item in `errors` is always recorded.
 
 `stats()`: `enabled, buffered, dropped, lines_written, file_bytes, flushes, rotations, io_errors, encode_errors, samples, last_error, path, create_dir_ok`.
 
-Si `diagnostics_dir` falta, se intenta `ac.getFolder(ac.FolderID.Root)..'/apps/lua/RiceTrials/diagnostics'` (`FolderID.Root` es el único ID confirmado en `docs/csp-api-reference.md`). Si tampoco hay carpeta, cada flush cuenta un error de io y las líneas quedan en el buffer acotado.
+If `diagnostics_dir` is missing, the module tries `ac.getFolder(ac.FolderID.Root)..'/apps/lua/RiceTrials/diagnostics'` (`FolderID.Root` is the only ID confirmed in `docs/csp-api-reference.md`). If there is no folder either, each flush counts an io error and the lines stay in the bounded buffer.
 
-## Configuración y límites
+## Settings and limits
 
-| Clave | Default | Rango | Efecto |
+| Key | Default | Range | Effect |
 |---|---|---|---|
-| `diagnostics_max_bytes` | 2 MB | 4 KB a 64 MB | tamaño máximo de cada archivo |
-| `diagnostics_buffer_max` | 1000 | 10 a 100000 | líneas pendientes en memoria; al llenarse se descarta la más vieja y se cuenta en `dropped` |
-| `diagnostics_flush_s` | 10 | 1 a 300 | segundos de simulación entre escrituras |
-| `diagnostics_sample_hz` | 2 | 0,1 a 20 | muestras de posición por segundo |
-| `diagnostics_file` | `rice_diagnostics` | `[%w_-]+` | nombre base |
+| `diagnostics_max_bytes` | 2 MB | 4 KB to 64 MB | maximum size of each file |
+| `diagnostics_buffer_max` | 1000 | 10 to 100000 | pending lines in memory; when full, the oldest is dropped and counted in `dropped` |
+| `diagnostics_flush_s` | 10 | 1 to 300 | simulation seconds between writes |
+| `diagnostics_sample_hz` | 2 | 0.1 to 20 | position samples per second |
+| `diagnostics_file` | `rice_diagnostics` | `[%w_-]+` | base name |
 
-Archivos: `<dir>/<file>.jsonl` (actual) y `<dir>/<file>.1.jsonl` (anterior). Disco usado como máximo: 2 x `max_bytes`.
+Files: `<dir>/<file>.jsonl` (current) and `<dir>/<file>.1.jsonl` (previous). Maximum disk used: 2 x `max_bytes`.
 
-## Por qué el archivo actual vive en memoria
+## Why the current file lives in memory
 
-`io.save(filename, data)` reescribe el archivo completo y la referencia de CSP no documenta append. Para no perder líneas anteriores, el módulo guarda en memoria el texto del archivo actual (acotado por `max_bytes`) y en cada flush escribe `segmento + líneas nuevas`. Alternativas descartadas:
+`io.save(filename, data)` rewrites the whole file and the CSP reference does not document append. To avoid losing earlier lines, the module keeps the current file's text in memory (bounded by `max_bytes`) and on each flush writes `segment + new lines`. Rejected alternatives:
 
-- **Releer con `io.load` y concatenar**: misma memoria pico y además lectura de disco en cada flush.
-- **Un archivo por flush (segmentos chicos)**: cientos de archivos por sesión, y la rotación necesitaría `io.scanDir`, que no está verificado.
+- **Reread with `io.load` and concatenate**: same peak memory, plus a disk read on every flush.
+- **One file per flush (small segments)**: hundreds of files per session, and rotation would need `io.scanDir`, which is not verified.
 
-Costo: memoria pico de unas 2 x `max_bytes` durante el flush (4 MB con defaults) y una escritura de hasta 2 MB cada 10 s. Si eso resulta caro en el rig, bajar `diagnostics_max_bytes` (por ejemplo 512 KB) reduce ambos.
+Cost: peak memory of about 2 x `max_bytes` during the flush (4 MB with defaults) and a write of up to 2 MB every 10 s. If that turns out to be expensive on the rig, lowering `diagnostics_max_bytes` (for example 512 KB) reduces both.
 
-## Rotación
+## Rotation
 
-1. Antes de la primera escritura de la sesión: `io.createDir(dir)` (su resultado no se cuenta como error porque puede devolver `false` si la carpeta ya existe; decide `io.save`). Si ya existe un archivo actual de una sesión anterior, se rota para no pisarlo.
-2. Si `segmento + nuevas` superaría `max_bytes`: si existe `.1.jsonl` se borra con `io.deleteFile` **antes** de `io.move(actual, .1.jsonl)`, porque `io.move` sobre un destino existente no está documentado (en Windows `MoveFileEx` sin `REPLACE_EXISTING` falla). Si `move` falla igual, se borra el actual para mantener el tope. Luego se empieza un segmento vacío.
-3. Si un solo flush supera `max_bytes`, se conservan las líneas más nuevas y las cortadas se suman a `dropped`.
+1. Before the first write of the session: `io.createDir(dir)` (its result is not counted as an error because it may return `false` if the folder already exists; `io.save` decides). If a current file from a previous session already exists, it is rotated so it is not overwritten.
+2. If `segment + new` would exceed `max_bytes`: if `.1.jsonl` exists it is deleted with `io.deleteFile` **before** `io.move(current, .1.jsonl)`, because `io.move` onto an existing target is undocumented (on Windows `MoveFileEx` without `REPLACE_EXISTING` fails). If `move` still fails, the current file is deleted to keep the cap. Then an empty segment starts.
+3. If a single flush exceeds `max_bytes`, the newest lines are kept and the cut ones are added to `dropped`.
 
-## Nunca bloquea
+## Never blocks
 
-- Toda llamada a `io` va dentro de `pcall`; una excepción, un `false` devuelto o una función ausente suman `io_errors` y guardan `last_error`. Nada se propaga a `script.update`.
-- Si `io.save` falla, las líneas quedan en el buffer (acotado) y se reintenta en el próximo flush.
-- Los campos del auto se leen con `pcall`: en CSP `ac.StateCar` es cdata FFI y leer un campo inexistente lanza error.
-- Por frame sólo se comparan 4 escalares (colisión y `lapCount`); muestreo, detector y conexión van a 2 Hz; encoding y escritura sólo al hacer flush o al registrar.
-- JSON propio (determinístico, sin depender de `JSON.stringify` de CSP, que puede codificar `{}` como `[]`). NaN e infinitos se escriben como `null`; texto con comillas, barras y caracteres de control se escapa.
+- Every `io` call runs inside `pcall`; an exception, a returned `false` or a missing function increments `io_errors` and stores `last_error`. Nothing propagates to `script.update`.
+- If `io.save` fails, the lines stay in the (bounded) buffer and the next flush retries.
+- Car fields are read with `pcall`: in CSP `ac.StateCar` is FFI cdata and reading a missing field raises an error.
+- Per frame only 4 scalars are compared (collision and `lapCount`); sampling, detector and connection run at 2 Hz; encoding and writing happen only on flush or when recording.
+- Own JSON encoder (deterministic, not relying on CSP's `JSON.stringify`, which may encode `{}` as `[]`). NaN and infinities are written as `null`; text with quotes, slashes and control characters is escaped.
 
-## Formato JSONL
+## JSONL format
 
-Una línea por objeto, siempre con `t` (segundos de simulación) y `kind` primero; el resto de las claves en orden alfabético. Tipos de línea:
+One object per line, always with `t` (simulation seconds) and `kind` first; the remaining keys in alphabetical order. Line types:
 
-| `kind` | Campos | Cuándo |
+| `kind` | Fields | When |
 |---|---|---|
-| `session_start` | `format=1`, `csp_version` (`ac.getPatchVersion()`), `csp_code` (`ac.getPatchVersionCode()`), `car_id` (`ac.getCarID(0)`), `track_id` (`ac.getTrackFullID('/')`), `api` (nombre -> bool), `config` | primera llamada a `update` |
-| `car_fields` | `available` (`car.<campo>` -> bool) | primera llamada con auto |
-| `sample` | `pos={x,y,z}`, `look={x,y,z}`, `speedKmh`, `lapTimeMs`, `lapCount`, `isLapValid`, `splinePosition` | cada 1/`sample_hz` s con auto |
-| `collision` | `collidedWith`, `wheelsOutside`, `collisionDepth` | sólo cuando cambia `collidedWith`, `wheelsOutside` o el estado de contacto (`collisionDepth > 0`) |
-| `lap` | `lapCount`, `previousLapTimeMs`, `isLastLapValid` | cuando cambia `lapCount` |
-| `detector` / `connection` | `state` | cuando cambian |
-| `sim` | `isPaused` | cuando cambia (si `sim` lo expone) |
-| `error` | `message` | por cada `extra.errors` |
-| `car_missing` | | cuando `car` pasa a nil |
-| cualquier otro | lo que se pase a `:event(kind, fields)` | a demanda |
+| `session_start` | `format=1`, `csp_version` (`ac.getPatchVersion()`), `csp_code` (`ac.getPatchVersionCode()`), `car_id` (`ac.getCarID(0)`), `track_id` (`ac.getTrackFullID('/')`), `api` (name -> bool), `config` | first call to `update` |
+| `car_fields` | `available` (`car.<field>` -> bool) | first call with a car |
+| `sample` | `pos={x,y,z}`, `look={x,y,z}`, `speedKmh`, `lapTimeMs`, `lapCount`, `isLapValid`, `splinePosition` | every 1/`sample_hz` s with a car |
+| `collision` | `collidedWith`, `wheelsOutside`, `collisionDepth` | only when `collidedWith`, `wheelsOutside` or the contact state (`collisionDepth > 0`) changes |
+| `lap` | `lapCount`, `previousLapTimeMs`, `isLastLapValid` | when `lapCount` changes |
+| `detector` / `connection` | `state` | when they change |
+| `sim` | `isPaused` | when it changes (if `sim` exposes it) |
+| `error` | `message` | for each `extra.errors` item |
+| `car_missing` | | when `car` becomes nil |
+| any other | whatever is passed to `:event(kind, fields)` | on demand |
 
-Ejemplo de muestra (la herramienta de análisis de pista importa estas líneas):
+Sample line (the track analysis tool imports these lines):
 
 ```json
 {"t":12.5,"kind":"sample","isLapValid":true,"lapCount":0,"lapTimeMs":1000,"look":{"x":0,"y":0,"z":1},"pos":{"x":1.5,"y":0.25,"z":-3},"speedKmh":50,"splinePosition":0.1}
 ```
 
-Campos ausentes (API no expuesta por la versión de CSP) simplemente no aparecen en la línea; `pos`/`look` se omiten si alguna componente no es un número finito.
+Missing fields (API not exposed by the CSP version) are simply absent from the line; `pos`/`look` are omitted if any component is not a finite number.
 
-APIs informadas en `api`: `ac.getCar`, `ac.getSim`, `ac.getPatchVersion`, `ac.getPatchVersionCode`, `ac.getCarID`, `ac.getTrackFullID`, `ac.onCarJumped`, `ac.onSessionStart`, `ac.getFolder`, `ac.storage`, `io.save`, `io.load`, `io.move`, `io.createDir`, `io.deleteFile`, `io.fileExists`, `web.get`, `web.post`, `JSON.parse`, `JSON.stringify`, `ui.pushDWriteFont`, `ui.popDWriteFont`, `ui.dwriteText`, `ui.drawRectFilled`, `ui.textColored`, `ui.windowSize`, `ui.setCursor`.
+APIs reported in `api`: `ac.getCar`, `ac.getSim`, `ac.getPatchVersion`, `ac.getPatchVersionCode`, `ac.getCarID`, `ac.getTrackFullID`, `ac.onCarJumped`, `ac.onSessionStart`, `ac.getFolder`, `ac.storage`, `io.save`, `io.load`, `io.move`, `io.createDir`, `io.deleteFile`, `io.fileExists`, `web.get`, `web.post`, `JSON.parse`, `JSON.stringify`, `ui.pushDWriteFont`, `ui.popDWriteFont`, `ui.dwriteText`, `ui.drawRectFilled`, `ui.textColored`, `ui.windowSize`, `ui.setCursor`.
 
-## Integración (referencia)
+## Integration (reference)
 
 ```lua
 local diagnostics = require('diagnostics')
-local diag = diagnostics.new(settings, {})   -- settings.diagnostics == true para activar
+local diag = diagnostics.new(settings, {})   -- settings.diagnostics == true to enable
 function script.update(dt)
-  -- ... scoring existente ...
+  -- ... existing scoring ...
   diag:update(dt, ac.getCar(0), ac.getSim and ac.getSim() or nil,
     {connection = {online = online, pending = #queue.entries}, detector = detectorState})
 end
 ```
 
-Se recomienda llamar `diag:event('server', {...})` desde los callbacks de `web` para registrar respuestas no reconocidas. No hay hook de cierre verificado en CSP, así que al descargar la app se pierden como máximo `flush_s` segundos de líneas.
+Calling `diag:event('server', {...})` from the `web` callbacks is recommended to record unrecognized responses. There is no verified shutdown hook in CSP, so unloading the app loses at most `flush_s` seconds of lines.
 
-## No verificado
+## Not verified
 
-- Ruta real de `ac.getFolder(ac.FolderID.Root)` y permisos de escritura en `apps/lua/RiceTrials/diagnostics`.
-- Resultado de `io.createDir` sobre carpeta existente, de `io.move` sobre destino existente y atomicidad de `io.save`.
-- Costo real de un `io.save` de 2 MB en el rig (posible micro-tirón cada 10 s).
+- Real path of `ac.getFolder(ac.FolderID.Root)` and write permissions in `apps/lua/RiceTrials/diagnostics`.
+- Result of `io.createDir` on an existing folder, of `io.move` onto an existing target, and atomicity of `io.save`.
+- Real cost of a 2 MB `io.save` on the rig (possible micro-stutter every 10 s).
 
 ## Tests
 
-`client/tests/test_diagnostics.py`: inactivo por defecto, encabezado y JSON válido por línea (incluye escapes), muestreo a 2 Hz, colisiones sólo al cambiar, flush periódico (no por frame) que conserva líneas previas, tope del buffer con descarte del más viejo, rotación por tamaño con 2 archivos acotados y orden temporal, rotación de la sesión anterior con borrado antes del move, `io` ausente, `io` lanzando errores y recuperación posterior, `io.save` devolviendo `false`, auto ausente y `dt` inválido, detector/conexión sólo al cambiar, reloj inyectado y carpeta por `ac.getFolder`, auto tipo cdata que lanza en campos inexistentes, y smoke en LuaJIT 2.1.
+`client/tests/test_diagnostics.py`: inactive by default, header and valid JSON per line (including escapes), 2 Hz sampling, collisions only on change, periodic flush (not per frame) that keeps earlier lines, buffer cap dropping the oldest, size-based rotation with 2 bounded files in time order, rotation of the previous session with delete before move, missing `io`, `io` raising errors and later recovery, `io.save` returning `false`, missing car and invalid `dt`, detector/connection only on change, injected clock and folder via `ac.getFolder`, cdata-like car that raises on missing fields, and a LuaJIT 2.1 smoke test.

@@ -1,21 +1,21 @@
-# Validación del cliente dentro del juego (`rice-win11`, AC + CSP reales)
+# In-game client validation (`rice-win11`, real AC + CSP)
 
-2026-10-20, por Lucas (agente Hermes), VM `rice-win11` (RTX 3060 en passthrough hacia la TV).
+2026-10-20, by Lucas (Hermes agent), VM `rice-win11` (RTX 3060 in passthrough to the TV).
 
-## Qué se confirmó
+## What was confirmed
 
-El cliente Lua `RiceTrials` carga dentro de Assetto Corsa a través de CSP 0.2.11 y
-llega al servidor de punta a punta sobre el runtime real:
+The `RiceTrials` Lua client loads inside Assetto Corsa through CSP 0.2.11 and
+reaches the server end to end on the real runtime:
 
-- `acs.exe` lanzado directo (`-e madformulateam_mft02 -t FSAEJ_Endurance -s 0`), motor
-  corriendo (PID 7992 en la captura, CPU acumulando).
-- CSP cargó (`dwrite.dll` presente; se creó `Documents\Assetto Corsa\logs\py_log.txt`).
-- El autostart del cliente corrió: leyó `station_config.lua`, se autenticó con el token
-  de estación, obtuvo la asignación (ST01 -> S1 -> P01) y está latiendo (heartbeat).
+- `acs.exe` launched directly (`-e madformulateam_mft02 -t FSAEJ_Endurance -s 0`), engine
+  running (PID 7992 in the capture, CPU time accumulating).
+- CSP loaded (`dwrite.dll` present; `Documents\Assetto Corsa\logs\py_log.txt` was created).
+- The client autostart ran: it read `station_config.lua`, authenticated with the station
+  token, got the assignment (ST01 -> S1 -> P01) and is sending heartbeats.
 
-## Prueba (capturada ~22:25 UTC del 2026-10-20)
+## Proof (captured ~22:25 UTC on 2026-10-20)
 
-`GET /api/station/assignment` (token de estación):
+`GET /api/station/assignment` (station token):
 
 ```json
 {"station_id":"ST01","session_id":"S1","pilot_id":"P01",
@@ -23,26 +23,26 @@ llega al servidor de punta a punta sobre el runtime real:
  "last_seen_utc":"2026-10-20T22:25:23.434161+00:00"}
 ```
 
-`online:true` con un `last_seen_utc` que se renueva cada ~30 s es la prueba de lectura
-de que el cliente está vivo y hablando con el servidor, no un seed estático.
+`online:true` with a `last_seen_utc` that refreshes every ~30 s is the read-side proof
+that the client is alive and talking to the server, not a static seed.
 
-## Lo que esto NO prueba (todavía pendiente)
+## What this does NOT prove (still pending)
 
-- `io.save` / `io.load` escribiendo estado en `apps/lua/RiceTrials/state/` (no se observaron
-  archivos todavía; el journal escribe en eventos de sesión).
-- El HUD renderizando en la TV.
-- `ac.onCarJumped` / `resetCounter` disparando como asume el mock.
-- Cronometraje en pista, detección de vuelta o scoring (requiere manejar de verdad; el
-  scoring sigue desarmado, `scoring_armed=False`).
+- `io.save` / `io.load` writing state to `apps/lua/RiceTrials/state/` (no files were observed
+  yet; the journal writes on session events).
+- The HUD rendering on the TV.
+- `ac.onCarJumped` / `resetCounter` firing as the mock assumes.
+- On-track timing, lap detection or scoring (requires real driving; scoring
+  is still disarmed, `scoring_armed=False`).
 
-## Configuración de VM usada (dev/prueba, no el despliegue empaquetado)
+## VM configuration used (dev/test, not the packaged deployment)
 
-- Servidor: `python -m server.app --db C:\rr\test.sqlite --host 127.0.0.1 --port 8080`
-  corrido por la tarea programada `RiceTrialsServer` de `SYSTEM` (AtStartup), no el camino
-  empaquetado `start-server.ps1` + DPAPI + cuenta dedicada de `docs/deployment.md`.
-- `secrets.env` en texto plano sólo para la VM (lectura de `SYSTEM` otorgada con un
-  `icacls` dirigido).
-- Prerrequisitos de runtime de AC instalados: VC++ 2010/2012/2013/2015-2022 (x64) y
-  DirectX June 2010 (`d3dx9_43.dll`); sin ellos `acs.exe` muere con `0xc000007b`.
-- Autologin de `riceadmin` habilitado (registro) para que la VM arranque en la sesión
-  interactiva dueña de la GPU.
+- Server: `python -m server.app --db C:\rr\test.sqlite --host 127.0.0.1 --port 8080`
+  run by the `RiceTrialsServer` scheduled task as `SYSTEM` (AtStartup), not the packaged
+  path `start-server.ps1` + DPAPI + dedicated account from `docs/deployment.md`.
+- Plain-text `secrets.env` for the VM only (read access for `SYSTEM` granted with a targeted
+  `icacls`).
+- AC runtime prerequisites installed: VC++ 2010/2012/2013/2015-2022 (x64) and
+  DirectX June 2010 (`d3dx9_43.dll`); without them `acs.exe` dies with `0xc000007b`.
+- `riceadmin` autologin enabled (registry) so the VM boots into the interactive session
+  that owns the GPU.

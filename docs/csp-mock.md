@@ -1,50 +1,50 @@
-# Entorno MOCK de Assetto Corsa / CSP (`sim/`)
+# Assetto Corsa / CSP MOCK environment (`sim/`)
 
-**Esto no es validación de CSP.** Pasar esta suite prueba que el código de producción se comporta bien ante el comportamiento que *suponemos* de CSP. Lo que CSP hace de verdad sólo se confirma dentro del juego (ver `docs/windows-validation.md`).
+**This is not CSP validation.** Passing this suite proves that the production code behaves correctly against the behavior we *assume* CSP has. What CSP really does is only confirmed inside the game (see `docs/windows-validation.md`).
 
-## Qué es real y qué es simulado
+## What is real and what is simulated
 
-| Pieza | Real o simulada |
+| Piece | Real or simulated |
 |---|---|
-| `client/*.lua` (`RiceTrials`, `core`, `journal`, `hud`, `diagnostics`, `scoring`) | **Real, sin modificar.** Se instalan en un `apps/lua/RiceTrials/` en disco igual que lo hace `install.ps1` (incluido un `station_config.lua` generado) y se cargan por `require` desde esa carpeta. |
-| Máquina virtual Lua | **Real:** LuaJIT 2.1 (`lupa.luajit21`), la misma familia que embebe CSP. |
-| JSON | **Real:** `JSON.parse`/`JSON.stringify` copiados tal cual del SDK oficial (`sim/vendor/csp_json.lua`, licencia MIT en `sim/vendor/acc-lua-sdk.LICENSE`), incluida la semántica de tabla vacía. |
-| Servidor | **Real:** `server/app.py` sobre HTTP real (en proceso, o el exe de PyInstaller). |
-| Disco | **Real:** archivos y carpetas del sistema operativo anfitrión, con fallas inyectadas (escritura cortada a la mitad, disco lleno, error de E/S). |
-| Superficie `ac`, `io`, `web`, `ui`, `script` (`sim/csp_prelude.lua`) | **Simulada.** Firmas tomadas de `acc-lua-sdk` y `acc-lua-internal`. |
-| Estructuras del auto y de la sesión | **Simuladas** como cdata FFI: leer un campo que no existe da error, como en CSP. Hay un perfil "moderno" y uno "legacy" sin `resetCounter` ni `collisionDepth`. |
-| Momento en que llegan las respuestas de `web.*` | **Simulado:** cola por frames, latencia configurable, servidor caído, respuesta perdida, 500, respuesta basura, límite de pedidos simultáneos. |
-| Cuándo CSP llama a `script.update` en pausa, replay, menú y reinicio de sesión | **Simulado**, y es la principal suposición: ver la tabla de abajo. |
-| Física del auto | **Simulada:** un piloto cinemático sigue la línea AI (sintética, o la `fast_lane` real de FSAEJ si se pasa `RICE_FSAEJ_GEOMETRY`), integrado a 1 kHz para calcular el tiempo verdadero de cada vuelta. |
+| `client/*.lua` (`RiceTrials`, `core`, `journal`, `hud`, `diagnostics`, `scoring`) | **Real, unmodified.** Installed into an on-disk `apps/lua/RiceTrials/` exactly as `install.ps1` does (including a generated `station_config.lua`) and loaded with `require` from that folder. |
+| Lua virtual machine | **Real:** LuaJIT 2.1 (`lupa.luajit21`), the same family CSP embeds. |
+| JSON | **Real:** `JSON.parse`/`JSON.stringify` copied verbatim from the official SDK (`sim/vendor/csp_json.lua`, MIT license in `sim/vendor/acc-lua-sdk.LICENSE`), including empty-table semantics. |
+| Server | **Real:** `server/app.py` over real HTTP (in process, or the PyInstaller exe). |
+| Disk | **Real:** host operating system files and folders, with injected faults (write cut halfway, disk full, I/O error). |
+| `ac`, `io`, `web`, `ui`, `script` surface (`sim/csp_prelude.lua`) | **Simulated.** Signatures taken from `acc-lua-sdk` and `acc-lua-internal`. |
+| Car and session structures | **Simulated** as FFI cdata: reading a field that does not exist raises an error, as in CSP. There is a "modern" profile and a "legacy" one without `resetCounter` or `collisionDepth`. |
+| Timing of `web.*` responses | **Simulated:** per-frame queue, configurable latency, server down, lost response, 500, garbage response, limit on concurrent requests. |
+| When CSP calls `script.update` during pause, replay, menu and session restart | **Simulated**, and it is the main assumption: see the table below. |
+| Car physics | **Simulated:** a kinematic driver follows the AI line (synthetic, or the real FSAEJ `fast_lane` if `RICE_FSAEJ_GEOMETRY` is set), integrated at 1 kHz to compute the true time of each lap. |
 
-## Suposiciones sobre CSP que hay que confirmar en el juego
+## CSP assumptions to confirm in game
 
-| Suposición | Qué hace el cliente si es falsa |
+| Assumption | What the client does if it is false |
 |---|---|
-| `ac.getSim()` expone `isReplayActive`, `isPaused`, `isInMainMenu` | Lee los campos de forma segura: si faltan no bloquea, pero tampoco protege contra el replay. Confirmar en el juego. |
-| Durante la pausa `script.update` puede recibir `dt > 0` | El cliente descarta la vuelta en curso al ver `isPaused` y exige un outlap nuevo, así que el resultado es correcto con `dt = 0` o con `dt > 0`. |
-| `car.resetCounter` existe en la versión de CSP fijada | Si falta, se usa la detección por salto de posición y `ac.onCarJumped`. |
-| `web.post` entrega `response.status` numérico y `err` en fallas de transporte | Si una falla no deja ni `err` ni un `status` 0/5xx, la asignación se borra (más restrictivo). |
-| `io.save` + relectura detecta escrituras incompletas | El journal A/B con checksum lo cubre; el comportamiento real de Windows ante un corte de energía sigue sin probar. |
+| `ac.getSim()` exposes `isReplayActive`, `isPaused`, `isInMainMenu` | Reads the fields safely: if missing it does not block, but it does not protect against replays either. Confirm in game. |
+| During a pause `script.update` may receive `dt > 0` | The client discards the lap in progress when it sees `isPaused` and requires a new out lap, so the result is correct with `dt = 0` or `dt > 0`. |
+| `car.resetCounter` exists in the pinned CSP version | If missing, position-jump detection and `ac.onCarJumped` are used. |
+| `web.post` delivers a numeric `response.status` and `err` on transport failures | If a failure leaves neither `err` nor a 0/5xx `status`, the assignment is cleared (more restrictive). |
+| `io.save` + readback detects incomplete writes | The A/B journal with checksum covers it; real Windows behavior on power loss remains untested. |
 
-## Escenarios (`sim/test_sim_scenarios.py`)
+## Scenarios (`sim/test_sim_scenarios.py`)
 
-Vueltas limpias contra el tiempo verdadero (error menor a 3 ms con 30, 60, 144 fps y con frames irregulares); replay, menú y pausa (con `dt` en cero o avanzando); resets por `resetCounter`, por `ac.onCarJumped` y teleport sin `resetCounter`; reinicio de sesión; reversa y atajos; red caída y recuperación sin pérdidas ni duplicados; respuesta perdida reenviada idéntica; 500 y captive portal que no cuentan como confirmación; pedidos simultáneos acotados; token incorrecto; reinicio del juego con cola offline; escritura cortada; disco lleno; journal corrupto con bloqueo y diagnóstico correcto; APIs opcionales ausentes; sin `io`; JSONL de diagnóstico válido; vueltas sobre la línea AI real de FSAEJ.
+Clean laps against the true time (error under 3 ms at 30, 60 and 144 fps and with irregular frames); replay, menu and pause (with `dt` at zero or advancing); resets via `resetCounter`, via `ac.onCarJumped` and teleport without `resetCounter`; session restart; reversing and shortcuts; network down and recovery without losses or duplicates; lost response resent identically; 500 and captive portal not counted as confirmation; bounded concurrent requests; wrong token; game restart with an offline queue; cut write; full disk; corrupt journal with blocking and correct diagnosis; missing optional APIs; no `io`; valid diagnostics JSONL; laps on the real FSAEJ AI line.
 
-## Cómo correrlo
+## How to run it
 
 ```sh
 python -m pip install lupa==2.8
-python sim/run_evidence.py --out <carpeta>                    # 24 escenarios + 1 omitido
-RICE_FSAEJ_GEOMETRY=<geometry.json> python sim/run_evidence.py --out <carpeta>   # 25
+python sim/run_evidence.py --out <folder>                    # 24 scenarios + 1 skipped
+RICE_FSAEJ_GEOMETRY=<geometry.json> python sim/run_evidence.py --out <folder>   # 25
 ```
 
-La geometría de FSAEJ se genera con `track/tool.py` desde el ZIP del mod y **no se distribuye** (derivada de assets de terceros). `run_evidence.py` escribe `summary.json` (commit, hashes SHA-256 del cliente y del servidor, versión de LuaJIT, resultado de cada test) y `unittest.log`. La evidencia guardada está en `docs/evidence/csp-mock/`.
+The FSAEJ geometry is generated with `track/tool.py` from the mod ZIP and **is not distributed** (derived from third-party assets). `run_evidence.py` writes `summary.json` (commit, SHA-256 hashes of client and server, LuaJIT version, result of each test) and `unittest.log`. The stored evidence is in `docs/evidence/csp-mock/`.
 
-## Bugs reales que encontró este entorno (corregidos)
+## Real bugs this environment found (fixed)
 
-1. `RiceTrials.lua` leía `car.resetCounter` directamente: en un CSP sin ese campo, la lectura da error en cada frame y el cronometraje se apaga del todo. Ahora se lee con `pcall`.
-2. El cliente no miraba `isReplayActive`, `isPaused` ni `isInMainMenu`: un replay generaba vueltas falsas y una pausa con `dt > 0` inflaba el tiempo (43,5 s contra 23,5 s). Ahora descarta la vuelta en curso y exige un outlap nuevo.
-3. El cruce de la línea se tomaba al final del frame: hasta 33 ms de error por cruce a 30 fps. Ahora se interpola dentro del frame (`core.crossed` devuelve la fracción); el error medido baja a menos de 3 ms.
-4. Una caída breve de la red borraba la asignación autenticada y las vueltas siguientes no se registraban. Ahora sólo una falla de transporte (sin respuesta o 5xx) conserva la última asignación, como máximo 600 s de juego. Esas vueltas llevan `assignment_revision` y el servidor las deja `PENDING_REVIEW`. Cualquier respuesta del servidor que no sea una asignación válida la borra.
-5. Con la cola corrupta, el estado mostraba `STATION_CONFIG_INVALID` y tapaba `QUEUE_CORRUPT`. Ahora queda visible la causa real.
+1. `RiceTrials.lua` read `car.resetCounter` directly: on a CSP without that field, the read raises an error every frame and timing shuts off entirely. It is now read with `pcall`.
+2. The client did not check `isReplayActive`, `isPaused` or `isInMainMenu`: a replay produced fake laps and a pause with `dt > 0` inflated the time (43.5 s versus 23.5 s). It now discards the lap in progress and requires a new out lap.
+3. The line crossing was taken at the end of the frame: up to 33 ms of error per crossing at 30 fps. It is now interpolated within the frame (`core.crossed` returns the fraction); the measured error drops below 3 ms.
+4. A brief network outage cleared the authenticated assignment and the following laps were not recorded. Now only a transport failure (no response or 5xx) keeps the last assignment, for at most 600 s of game time. Those laps carry `assignment_revision` and the server leaves them `PENDING_REVIEW`. Any server response that is not a valid assignment clears it.
+5. With a corrupt queue, the status showed `STATION_CONFIG_INVALID` and hid `QUEUE_CORRUPT`. The real cause is now visible.

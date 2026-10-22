@@ -115,7 +115,7 @@ class AppField(unittest.TestCase):
         self.assertIs(body['native_valid'],True)
         self.assertFalse(any(r[1].endswith('/api/laps') for r in requests))
         script.windowTimes(.1)
-        self.assertTrue(any(t.startswith('ULTIMA  0:00.') for t in lines(lua)),lines(lua))
+        self.assertTrue(any(t.startswith('LAST    0:00.') for t in lines(lua)),lines(lua))
 
     def test_detector_events_settings_and_bounded_telemetry_are_exportable(self):
         from test_network import AutoPenalties

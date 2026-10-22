@@ -6,13 +6,13 @@
   let loading = false;
   const byId = id => document.getElementById(id);
   const message = text => { byId('field-message').textContent = text; };
-  const value = item => item === null || item === undefined ? 'sin evidencia' :
+  const value = item => item === null || item === undefined ? 'No Evidence' :
     (typeof item === 'object' ? JSON.stringify(item) : String(item));
-  const STATES = {ABSENT: 'Pendientes (sin evidencia)', INCOMPLETE: 'Evidencia incompleta',
-    ZERO_INCIDENTS: 'Cero incidentes', PENALIZED: 'Penalizada', PENALTIES_DISABLED: 'Deshabilitadas',
-    CONFLICT: 'Conflicto: revisión'};
+  const STATES = {ABSENT: 'Pending (No Evidence)', INCOMPLETE: 'Incomplete Evidence',
+    ZERO_INCIDENTS: 'Zero Incidents', PENALIZED: 'Penalized', PENALTIES_DISABLED: 'Disabled',
+    CONFLICT: 'Conflict: review'};
   function penaltyState(lap) {
-    const label = STATES[lap.penalty_evidence_state] || 'Desconocido';
+    const label = STATES[lap.penalty_evidence_state] || 'Unknown';
     const off = Array.isArray(lap.disabled_penalties) && lap.disabled_penalties.length ?
       ' · off: ' + lap.disabled_penalties.join(',') : '';
     return label + off;
@@ -32,7 +32,7 @@
       const action = document.createElement('td');
       if (lap.session_id === 'UNASSIGNED' && lap.pilot_id === 'UNASSIGNED') {
         const button = document.createElement('button'); button.type = 'button';
-        button.textContent = 'Preparar atribución manual';
+        button.textContent = 'Prepare manual attribution';
         button.addEventListener('click', () => {
           byId('assign-station').value = lap.station_id || '';
           byId('assign-lap').value = lap.lap_id || '';
@@ -40,17 +40,17 @@
           byId('assign-session').focus();
         });
         action.appendChild(button);
-      } else action.textContent = 'Sin acción';
+      } else action.textContent = 'No action';
       tr.appendChild(action);
       body.appendChild(tr);
     }
   }
   async function load() {
-    if (!token) { message('Ingresá un token antes de consultar.'); return; }
+    if (!token) { message('Enter a token before querying.'); return; }
     if (loading) return;
     loading = true;
     const version = generation;
-    message('Consultando resultados provisionales...');
+    message('Querying provisional results...');
     try {
       const response = await fetch('/api/admin/v2/field-laps', {
         headers: {Authorization: 'Bearer ' + token}, cache: 'no-store'
@@ -59,13 +59,13 @@
       const data = await response.json();
       if (version !== generation) return;
       rows = Array.isArray(data) ? data : data.laps;
-      if (!Array.isArray(rows)) throw new Error('Respuesta sin lista de vueltas');
+      if (!Array.isArray(rows)) throw new Error('Response has no lap list');
       render();
-      message(rows.length + ' registros provisionales. No son resultados oficiales.');
+      message(rows.length + ' provisional records. These are not official results.');
     } catch (error) {
       if (version !== generation) return;
       rows = []; render();
-      message('No se pudieron consultar las vueltas: ' + error.message);
+      message('Could not query laps: ' + error.message);
     } finally { loading = false; }
   }
   byId('auth').addEventListener('submit', event => {
@@ -74,7 +74,7 @@
   byId('refresh').addEventListener('click', load);
   byId('assign-form').addEventListener('submit', async event => {
     event.preventDefault();
-    if (!token) { message('Ingresá un token antes de atribuir.'); return; }
+    if (!token) { message('Enter a token before attributing.'); return; }
     const data = Object.fromEntries(['station','lap','session','pilot','reviewer','reason']
       .map(name => [name, byId('assign-' + name).value.trim()]));
     try {
@@ -84,18 +84,18 @@
           pilot_id:data.pilot,reviewer:data.reviewer,reason:data.reason})});
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || ('HTTP ' + response.status));
-      message('Atribución manual auditada. La vuelta sigue provisional y fuera del ranking.');
+      message('Manual attribution audited. The lap stays provisional and out of the ranking.');
       await load();
-    } catch (error) { message('No se pudo atribuir la vuelta: ' + error.message); }
+    } catch (error) { message('Could not attribute the lap: ' + error.message); }
   });
   byId('clear').addEventListener('click', () => {
-    generation++; token = ''; rows = []; byId('field-token').value = ''; render(); message('Sesión local borrada.');
+    generation++; token = ''; rows = []; byId('field-token').value = ''; render(); message('Local session cleared.');
   });
   setInterval(() => { if (token) load(); }, 3000);
   byId('export').addEventListener('click', async () => {
-    if (!token) { message('Ingresá un token antes de exportar.'); return; }
+    if (!token) { message('Enter a token before exporting.'); return; }
     await load();
-    if (!rows.length) { message('No hay registros cargados para exportar.'); return; }
+    if (!rows.length) { message('No records loaded to export.'); return; }
     const blob = new Blob([JSON.stringify({schema: 'rice-field-export-v2', provisional: true,
       exported_at: new Date().toISOString(), laps: rows}, null, 2)], {type: 'application/json'});
     const url = URL.createObjectURL(blob);

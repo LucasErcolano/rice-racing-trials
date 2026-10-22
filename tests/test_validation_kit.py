@@ -62,20 +62,20 @@ class ValidationReportTests(unittest.TestCase):
     def test_synthetic_inputs_are_never_verified(self):
         result = validation.build([self.jsonl(session())], self.json('export.json', export()))
         self.assertTrue(result['synthetic'])
-        self.assertEqual(result['status'], 'SINTÉTICO (no válido)')
-        self.assertIn('DATOS SINTÉTICOS', result['warnings'][0])
-        self.assertIn('DATOS SINTÉTICOS', validation.markdown(result))
+        self.assertEqual(result['status'], 'SYNTHETIC (not valid)')
+        self.assertIn('SYNTHETIC DATA', result['warnings'][0])
+        self.assertIn('SYNTHETIC DATA', validation.markdown(result))
 
     def test_sections_are_separated(self):
         result = validation.build([self.jsonl(session(synthetic=False))], self.json('e.json', export(synthetic=False)))
         text = '\n'.join(result['verified'])
-        for fragment in ('madformulateam_mft02', 'Teleport', 'outlap + 2', 'reconexión', 'Salida de pista',
-                         'Contactos', 'servidor recibió 2'):
+        for fragment in ('madformulateam_mft02', 'Teleport', 'outlap + 2', 'reconnection', 'Off-track',
+                         'Contacts', 'server received 2'):
             self.assertIn(fragment, text)
         self.assertEqual(result['blocking'], [])
         self.assertTrue(any('18.100 s' in c for c in result['calibration']))
         self.assertTrue(any('checklist' in p for p in result['pending']))
-        self.assertEqual(result['status'], 'INCOMPLETO')
+        self.assertEqual(result['status'], 'INCOMPLETE')
 
     def test_wrong_car_track_and_missing_api_block(self):
         apis = dict(APIS, **{'web.post': False})
@@ -88,24 +88,26 @@ class ValidationReportTests(unittest.TestCase):
         self.assertIn('web.post', blocking)
         self.assertIn('car.position', blocking)
         self.assertTrue(any('car.collisionDepth' in w for w in result['warnings']))
-        self.assertEqual(result['status'], 'BLOQUEADO')
+        self.assertEqual(result['status'], 'BLOCKED')
 
     def test_corrupt_lines_and_missing_session_start(self):
         result = validation.build([self.jsonl([{'t': 1, 'kind': 'sample', 'pos': {'x': 0, 'z': 0}}], '{broken\n[1]\n')])
         self.assertTrue(any('session_start' in b for b in result['blocking']))
-        self.assertTrue(any('2 líneas' in w for w in result['warnings']))
+        self.assertTrue(any('2 lines' in w for w in result['warnings']))
 
     def test_checklist_statuses(self):
         checklist = validation.checklist_template()
         checklist['synthetic'] = True
         checklist['items'][0]['status'] = 'ok'
-        checklist['items'][1]['status'] = 'falla'
+        checklist['items'][1]['status'] = 'fail'
         checklist['items'][2]['status'] = 'bogus'
+        checklist['items'][3]['status'] = 'falla'  # legacy Spanish value still accepted
         result = validation.build(checklist=self.json('c.json', checklist))
         self.assertTrue(any('[preflight]' in v for v in result['verified']))
         self.assertTrue(any('[open_ac]' in b for b in result['blocking']))
+        self.assertTrue(any('[diagnostics_on]' in b for b in result['blocking']))
         self.assertTrue(any('bogus' in w for w in result['warnings']))
-        self.assertTrue(any('[hud_loads] sin registrar' in p for p in result['pending']))
+        self.assertTrue(any('[hud_loads] not recorded' in p for p in result['pending']))
         ids = [i['id'] for i in validation.checklist_template()['items']]
         for required in ('preflight', 'open_ac', 'hud_loads', 'diagnostics_on', 'outlap_2_laps', 'cone_touch',
                          'off_track', 'teleport_restart', 'network_down', 'network_up', 'dummy_candidate',
@@ -119,9 +121,9 @@ class ValidationReportTests(unittest.TestCase):
                               str(diag), '--server-export', str(self.json('e.json', export())), '--output', str(out)],
                              capture_output=True, text=True, encoding='utf-8', timeout=60)
         self.assertEqual(run.returncode, 0, run.stderr)
-        self.assertIn('## Funciones verificadas', out.read_text(encoding='utf-8'))
+        self.assertIn('## Verified features', out.read_text(encoding='utf-8'))
         page = out.with_suffix('.html').read_text(encoding='utf-8')
-        self.assertIn('DATOS SINTÉTICOS', page)
+        self.assertIn('SYNTHETIC DATA', page)
         self.assertNotIn('<script', page)
         checklist = self.dir / 'checklist.json'
         run = subprocess.run([sys.executable, '-I', '-X', 'utf8', str(ROOT / 'tools/validation.py'), 'checklist', '--output',

@@ -38,115 +38,115 @@ class HudModel(unittest.TestCase):
         for state in (None, {}):
             m, lines, banner = self.model(state)
             self.assertIn('PROVISIONAL', m.title)
-            self.assertEqual(self.find(lines, 'Piloto')[1], 'warn')
-            self.assertEqual(self.find(lines, 'Tiempo')[0], 'Tiempo: --')
-            self.assertEqual(self.find(lines, 'Mejor corregida')[0], 'Mejor corregida: --')
-            self.assertEqual(self.find(lines, 'Cola pendiente')[0], 'Cola pendiente: desconocida')
+            self.assertEqual(self.find(lines, 'Driver')[1], 'warn')
+            self.assertEqual(self.find(lines, 'Time')[0], 'Time: --')
+            self.assertEqual(self.find(lines, 'Best Corrected')[0], 'Best Corrected: --')
+            self.assertEqual(self.find(lines, 'Pending queue')[0], 'Pending queue: unknown')
 
     def test_without_assignment(self):
         _, lines, banner = self.model({'phase': 'waiting', 'sync': {'online': True, 'pending': 0, 'persistence': 'ok'}})
-        self.assertEqual(self.find(lines, 'Piloto'), ('Piloto: SIN ASIGNACION (no se puntua)', 'warn'))
-        self.assertEqual(banner, ('SIN PILOTO ASIGNADO', 'warn'))
+        self.assertEqual(self.find(lines, 'Driver'), ('Driver: none assigned (not scored)', 'warn'))
+        self.assertEqual(banner, ('NO DRIVER ASSIGNED', 'warn'))
 
     def test_outlap_visible_and_untimed(self):
         _, lines, banner = self.model(self.base(phase='outlap'))
         self.assertEqual(self.find(lines, 'OUTLAP')[1], 'warn')
-        self.assertEqual(self.find(lines, 'Tiempo')[0], 'Tiempo: --')
-        self.assertFalse([l for l in lines if l[0].startswith('Proyectado')])
-        self.assertEqual(banner, ('OUTLAP - no cuenta', 'info'))
+        self.assertEqual(self.find(lines, 'Time')[0], 'Time: --')
+        self.assertFalse([l for l in lines if l[0].startswith('Projected')])
+        self.assertEqual(banner, ('OUTLAP - not counted', 'info'))
 
     def test_lap_in_progress_without_evidence_never_shows_zero(self):
         _, lines, _ = self.model(self.base())
-        self.assertEqual(self.find(lines, 'Tiempo')[0], 'Tiempo: 1:10.123')
-        for label in ('Conos', 'Off-course', 'Slalom'):
-            self.assertEqual(self.find(lines, label + ':'), (label + ': sin evidencia', 'warn'))
-        projected = self.find(lines, 'Proyectado')
-        self.assertTrue(projected[0].startswith('Proyectado: sin evidencia'))
+        self.assertEqual(self.find(lines, 'Time')[0], 'Time: 1:10.123')
+        for label in ('Cones', 'Off-course', 'Slalom'):
+            self.assertEqual(self.find(lines, label + ':'), (label + ': No Evidence', 'warn'))
+        projected = self.find(lines, 'Projected')
+        self.assertTrue(projected[0].startswith('Projected: No Evidence'))
         self.assertNotIn('1:10.123', projected[0])
 
     def test_partial_evidence_does_not_project(self):
         _, lines, _ = self.model(self.base(lap={'elapsed_ms': 70000, 'penalties': {'cone': 1}}))
-        self.assertEqual(self.find(lines, 'Conos:')[0], 'Conos: 1 +0:02.000')
-        self.assertEqual(self.find(lines, 'Proyectado')[0], 'Proyectado: sin evidencia (Off-course, Slalom)')
+        self.assertEqual(self.find(lines, 'Cones:')[0], 'Cones: 1 +0:02.000')
+        self.assertEqual(self.find(lines, 'Projected')[0], 'Projected: No Evidence (Off-course, Slalom)')
 
     def test_penalties_project_with_scoring_corrected_ms(self):
         state = self.base(lap={'elapsed_ms': 68500, 'penalties': {'cone': 3, 'off_course': 2, 'slalom': ['S1', 'S4']}})
         _, lines, _ = self.model(state)
-        self.assertEqual(self.find(lines, 'Conos:')[0], 'Conos: 3 +0:06.000')
+        self.assertEqual(self.find(lines, 'Cones:')[0], 'Cones: 3 +0:06.000')
         self.assertEqual(self.find(lines, 'Off-course:')[0], 'Off-course: 2 +0:40.000')
         self.assertEqual(self.find(lines, 'Slalom:')[0], 'Slalom: 2 (S1,S4) +0:40.000')
         # Fixture "endurance combined" in rules/scoring-v1.json: 154500 ms.
-        self.assertEqual(self.find(lines, 'Proyectado'), ('Proyectado PROVISIONAL: 2:34.500', 'info'))
+        self.assertEqual(self.find(lines, 'Projected'), ('Projected PROVISIONAL: 2:34.500', 'info'))
 
     def test_station_configured_amounts_and_projection_are_shown(self):
         state = self.base(lap={'elapsed_ms': 68500, 'penalties': {'cone': 2, 'off_course': 1, 'slalom': ['S1']},
                                'penalty_amounts': {'cone': 3500, 'off_course': 0, 'slalom': 20000},
                                'projected_ms': 68500 + 2 * 3500 + 20000})
         _, lines, _ = self.model(state)
-        self.assertEqual(self.find(lines, 'Conos:')[0], 'Conos: 2 +0:07.000')
+        self.assertEqual(self.find(lines, 'Cones:')[0], 'Cones: 2 +0:07.000')
         self.assertEqual(self.find(lines, 'Off-course:')[0], 'Off-course: 1 +0:00.000')
-        self.assertEqual(self.find(lines, 'Proyectado'), ('Proyectado PROVISIONAL: 1:35.500', 'info'))
+        self.assertEqual(self.find(lines, 'Projected'), ('Projected PROVISIONAL: 1:35.500', 'info'))
 
     def test_clean_lap_with_explicit_zero_evidence(self):
         state = self.base(lap={'elapsed_ms': 70123, 'penalties': {'cone': 0, 'off_course': 0, 'slalom': []}})
         _, lines, _ = self.model(state)
-        self.assertEqual(self.find(lines, 'Conos:'), ('Conos: 0', 'ok'))
-        self.assertEqual(self.find(lines, 'Proyectado')[0], 'Proyectado PROVISIONAL: 1:10.123')
+        self.assertEqual(self.find(lines, 'Cones:'), ('Cones: 0', 'ok'))
+        self.assertEqual(self.find(lines, 'Projected')[0], 'Projected PROVISIONAL: 1:10.123')
 
     def test_invalid_penalty_is_error_not_projection(self):
         state = self.base(lap={'elapsed_ms': 70000, 'penalties': {'cone': -1, 'off_course': 0, 'slalom': []}})
         _, lines, _ = self.model(state)
-        self.assertEqual(self.find(lines, 'Conos:')[1], 'error')
-        self.assertEqual(self.find(lines, 'Proyectado'), ('Proyectado: no calculable', 'error'))
+        self.assertEqual(self.find(lines, 'Cones:')[1], 'error')
+        self.assertEqual(self.find(lines, 'Projected'), ('Projected: cannot compute', 'error'))
 
     def test_skidpad_not_projected(self):
         _, lines, _ = self.model(self.base(event='skidpad'))
-        self.assertEqual(self.find(lines, 'Proyectado')[0], 'Proyectado: no disponible')
+        self.assertEqual(self.find(lines, 'Projected')[0], 'Projected: not available')
 
     def test_offline_with_queue(self):
         _, lines, banner = self.model(self.base(sync={'online': False, 'pending': 3, 'persistence': 'ok',
                                                       'last_ack': {'lap_id': 'ST01-n-4', 'age_s': 42.7}}))
-        self.assertEqual(self.find(lines, 'Servidor'), ('Servidor: OFFLINE', 'warn'))
-        self.assertEqual(self.find(lines, 'Cola pendiente'), ('Cola pendiente: 3', 'warn'))
-        self.assertEqual(self.find(lines, 'Ultimo ack')[0], 'Ultimo ack: ST01-n-4 hace 42s')
-        self.assertEqual(banner, ('OFFLINE: 3 vuelta(s) en cola local', 'warn'))
+        self.assertEqual(self.find(lines, 'Server'), ('Server: Offline', 'warn'))
+        self.assertEqual(self.find(lines, 'Pending queue'), ('Pending queue: 3', 'warn'))
+        self.assertEqual(self.find(lines, 'Last ack')[0], 'Last ack: ST01-n-4 hace 42s')
+        self.assertEqual(banner, ('OFFLINE: 3 lap(s) in local queue', 'warn'))
 
     def test_corrupt_persistence_is_error_banner(self):
         _, lines, banner = self.model(self.base(phase='outlap', sync={'online': True, 'pending': 0, 'persistence': 'corrupt'}))
-        self.assertEqual(self.find(lines, 'Persistencia')[1], 'error')
-        self.assertEqual(banner, ('PERSISTENCIA CORRUPTA - avisar al operador', 'error'))
+        self.assertEqual(self.find(lines, 'Storage')[1], 'error')
+        self.assertEqual(banner, ('STORAGE CORRUPT - tell the operator', 'error'))
         _, lines, banner = self.model(self.base(sync={'online': True, 'pending': 0, 'persistence': 'degraded'}))
-        self.assertEqual(self.find(lines, 'Persistencia')[1], 'warn')
-        self.assertEqual(banner, ('PERSISTENCIA DEGRADADA', 'warn'))
+        self.assertEqual(self.find(lines, 'Storage')[1], 'warn')
+        self.assertEqual(banner, ('STORAGE DEGRADED', 'warn'))
 
     def test_pending_review_vs_valid_last_and_best(self):
         _, lines, _ = self.model(self.base(last_official={'lap_id': 'a', 'status': 'PENDING_REVIEW', 'raw_ms': 71000, 'corrected_ms': 71000},
                                            best={'status': 'PENDING_REVIEW', 'corrected_ms': 71000}))
-        last = self.find(lines, 'Ultima')
-        self.assertEqual(last, ('Ultima: 1:11.000 bruto PENDING_REVIEW (no oficial)', 'warn'))
-        self.assertEqual(self.find(lines, 'Mejor corregida')[0], 'Mejor corregida: --')
+        last = self.find(lines, 'Last:')
+        self.assertEqual(last, ('Last: 1:11.000 raw PENDING_REVIEW (unofficial)', 'warn'))
+        self.assertEqual(self.find(lines, 'Best Corrected')[0], 'Best Corrected: --')
         _, lines, _ = self.model(self.base(last_official={'lap_id': 'b', 'status': 'VALID', 'raw_ms': 70000, 'corrected_ms': 72000},
                                            best={'status': 'VALID', 'corrected_ms': 72000}))
-        self.assertEqual(self.find(lines, 'Ultima oficial'), ('Ultima oficial: 1:12.000 VALID', 'ok'))
-        self.assertEqual(self.find(lines, 'Mejor corregida'), ('Mejor corregida: 1:12.000', 'ok'))
+        self.assertEqual(self.find(lines, 'Last official'), ('Last official: 1:12.000 VALID', 'ok'))
+        self.assertEqual(self.find(lines, 'Best Corrected'), ('Best Corrected: 1:12.000', 'ok'))
 
     def test_unknown_server_status_is_error(self):
         _, lines, _ = self.model(self.base(last_official={'status': 'GREAT', 'raw_ms': 1}))
-        self.assertEqual(self.find(lines, 'Ultima oficial')[1], 'error')
+        self.assertEqual(self.find(lines, 'Last official')[1], 'error')
 
     def test_detector_errors_bounded_and_banner(self):
         errs = [f'err{i}' for i in range(5)]
         _, lines, banner = self.model(self.base(detector_errors=errs), {'hud_max_errors': 2})
-        shown = [l for l in lines if l[0].startswith('ERROR detector')]
+        shown = [l for l in lines if l[0].startswith('Detector ERROR')]
         self.assertEqual(len(shown), 2)
-        self.assertEqual(self.find(lines, '(+3'), ('(+3 errores mas)', 'error'))
-        self.assertEqual(banner, ('ERROR DE DETECTOR', 'error'))
+        self.assertEqual(self.find(lines, '(+3'), ('(+3 more errors)', 'error'))
+        self.assertEqual(banner, ('DETECTOR ERROR', 'error'))
 
     def test_untrusted_text_is_sanitized(self):
         _, lines, _ = self.model(self.base(assignment={'pilot_id': 'p1', 'pilot_name': 'x\nA' * 30}))
-        pilot = self.find(lines, 'Piloto')[0]
+        pilot = self.find(lines, 'Driver')[0]
         self.assertNotIn('\n', pilot)
-        self.assertLessEqual(len(pilot), len('Piloto: ') + 40)
+        self.assertLessEqual(len(pilot), len('Driver: ') + 40)
 
     def test_layout_config_clamped(self):
         m, _, _ = self.model({}, {'hud_scale': 99, 'hud_x': -5, 'hud_y': 120})
@@ -246,7 +246,7 @@ class LuaJITSmoke(unittest.TestCase):
                                 'sync': {'online': True, 'pending': 0, 'persistence': 'ok'}}, recursive=True)
         m = hud.model(state, None)
         texts = [m.lines[i].text for i in range(1, len(m.lines) + 1)]
-        self.assertIn('Proyectado PROVISIONAL: 2:34.500', texts)
+        self.assertIn('Projected PROVISIONAL: 2:34.500', texts)
         drawn = lua.execute('''
           local hud, model = ...
           local n = 0

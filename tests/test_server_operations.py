@@ -59,9 +59,9 @@ class Harness(unittest.TestCase):
         return body
 
     def seed(self, session='S1', pilots=('P1', 'P2', 'P3', 'P4')):
-        self.admin('/api/admin/sessions', {'session_id': session, 'name': 'Sesión ' + session, 'active': True})
+        self.admin('/api/admin/sessions', {'session_id': session, 'name': 'Session ' + session, 'active': True})
         for pilot in pilots:
-            self.admin('/api/admin/pilots', {'pilot_id': pilot, 'name': 'Piloto ' + pilot})
+            self.admin('/api/admin/pilots', {'pilot_id': pilot, 'name': 'Driver ' + pilot})
         for index, pilot in enumerate(pilots, 1):
             self.admin('/api/admin/assignments', {'station_id': f'ST0{index}', 'session_id': session, 'pilot_id': pilot})
 
@@ -278,7 +278,7 @@ class AdminOperations(Harness):
         self.seed()
         self.submit(self.lap(lap_number=1, detector={'ok': True}, client_timestamp=1760000000.5))
         self.submit(self.lap(station='ST02', pilot='P2', lap_id='-cmd', events={'doo': 1, 'oc': 0}))
-        self.admin('/api/admin/penalties', {'station_id': 'ST01', 'lap_id': 'L1', 'events': {'doo': 2}, 'reviewer': 'jefe', 'reason': 'video'})
+        self.admin('/api/admin/penalties', {'station_id': 'ST01', 'lap_id': 'L1', 'events': {'doo': 2}, 'reviewer': 'chief', 'reason': 'video'})
         export = self.call('GET', '/api/admin/export.json', token=ADMIN)[1]
         for key in ('sessions', 'pilots', 'laps', 'reviews', 'assignments', 'assignment_history', 'calibrations', 'sync_errors'):
             self.assertIn(key, export)
@@ -297,10 +297,10 @@ class AdminOperations(Harness):
     def test_penalty_review_recalculates_and_is_audited(self):
         self.seed()
         self.submit(self.lap(events={'doo': 0, 'oc': 0}))
-        result = self.admin('/api/admin/penalties', {'station_id': 'ST01', 'lap_id': 'L1', 'events': {'doo': 1, 'oc': 1}, 'reviewer': 'jefe', 'reason': 'cámara 2'})
+        result = self.admin('/api/admin/penalties', {'station_id': 'ST01', 'lap_id': 'L1', 'events': {'doo': 1, 'oc': 1}, 'reviewer': 'chief', 'reason': 'camera 2'})
         self.assertEqual((result['corrected_ms'], result['events']), (60000 + 2000 + 20000, {'doo': 1, 'oc': 1}))
         review = self.call('GET', '/api/admin/reviews?session_id=S1', token=ADMIN)[1]['reviews'][0]
-        self.assertEqual((review['kind'], review['before_corrected_ms'], review['after_corrected_ms'], review['reviewer']), ('penalties', 60000, 82000, 'jefe'))
+        self.assertEqual((review['kind'], review['before_corrected_ms'], review['after_corrected_ms'], review['reviewer']), ('penalties', 60000, 82000, 'chief'))
         self.assertEqual(json.loads(review['before_events']), {'doo': 0, 'oc': 0})
         self.assertEqual(self.call('GET', '/api/leaderboard')[1]['ranking']['autocross'][0]['best_corrected_ms'], 82000)
         for bad in ({'doo': -1}, {'raw_ms': 1}, {'right_ms': 5}, {}, {'doo': 1.5}):

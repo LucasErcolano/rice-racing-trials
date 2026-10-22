@@ -21,10 +21,10 @@ CALIBRATION_ZIP = 'RiceRacing_Track_Calibration.zip'
 CALIBRATION_DERIVED = {'.json', '.html', '.svg', '.lua', '.candidate', '.txt', '.ps1'}
 FORBIDDEN_IN_CALIBRATION = re.compile(r'\.(kn5|kn5\.original|ai|rar|zip|7z|acd|dds|png|jpg)$', re.IGNORECASE)
 CALIBRATION_NOTICE = (
-    'USO INTERNO, NO DISTRIBUIR. derived/ contiene datos DERIVADOS de la geometría propietaria de FSAEJ '
-    '(coordenadas, bordes, clusters, Dummy.kn5 candidatos). No incluye ningún KN5 original.\n'
-    'Los parches Dummy son CANDIDATO NO VERIFICADO EN JUEGO. Las rutas exportadas tienen verified=false '
-    'salvo aprobación explícita de un operador.\n')
+    'INTERNAL USE, DO NOT DISTRIBUTE. derived/ contains data DERIVED from the proprietary FSAEJ geometry '
+    '(coordinates, edges, clusters, candidate Dummy.kn5). No original KN5 is included.\n'
+    'Dummy patches are CANDIDATES NOT VERIFIED IN GAME. Exported routes have verified=false '
+    'unless an operator explicitly approves them.\n')
 
 
 def safe_files(section, extensions):
@@ -113,7 +113,7 @@ def build_calibration(output: Path, derived=None):
     target = output / CALIBRATION_ZIP
     with ZipFile(target, 'w', ZIP_DEFLATED) as archive:
         archive.writestr('INTERNAL_DERIVED_DATA_DO_NOT_DISTRIBUTE.txt', CALIBRATION_NOTICE + (
-            '' if derived_count else 'Sin derivados: generar con "python -I track/tool.py extract ..." (ver docs/track-tool.md).\n'))
+            '' if derived_count else 'No derived data: generate it with "python -I track/tool.py extract ..." (see docs/track-tool.md).\n'))
         for source, destination in files:
             archive.write(source, destination)
     print(target, f'(derived files: {derived_count})')

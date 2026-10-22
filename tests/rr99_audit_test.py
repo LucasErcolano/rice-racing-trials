@@ -36,7 +36,11 @@ class Fixture(unittest.TestCase):
                 w(self.f, rel, data)
                 w(self.p, rel, data)
         w(self.p, 'Install-RR99.ps1', '# installer')
-        w(self.p, 'LEEME_RR99.txt', 'readme')
+        w(self.p, 'README_RR99.txt', 'readme')
+
+    def test_legacy_leeme_name_still_accepted(self):
+        os.replace(os.path.join(self.p, 'README_RR99.txt'), os.path.join(self.p, 'LEEME_RR99.txt'))
+        self.assertEqual(self.run_audit(), 0)
 
     def run_audit(self, *extra):
         return rr99_audit.main(['--orig', self.o, '--full', self.f, '--patch', self.p, *extra])
@@ -77,7 +81,7 @@ class AuditTests(Fixture):
         self.assertEqual(self.run_audit(), 1)
 
     def test_overlap_with_client_zip_fails(self):
-        z = self.zip_of('client.zip', ['RiceTrials/RiceTrials.lua', 'LEEME_RR99.txt'])
+        z = self.zip_of('client.zip', ['RiceTrials/RiceTrials.lua', 'README_RR99.txt'])
         self.assertEqual(self.run_audit('--client-zip', z), 1)
 
     def test_disjoint_client_server_zip_passes(self):
