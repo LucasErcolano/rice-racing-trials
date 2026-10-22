@@ -127,6 +127,21 @@ class FieldV2HttpTests(unittest.TestCase):
             self.assertFalse(result['evidence_verified'])
             self.assertTrue(result['review_reasons'])
 
+    def test_track_config_evidence_ignores_only_letter_case(self):
+        # AC reports the folder name (fsaej_endurance on the VM); calibration files say FSAEJ_Endurance.
+        # Windows folder names are case-insensitive, so only case may differ; any other value stays flagged.
+        for lap, row_track, evidence_track, flagged in (('T1', 'fsaej_endurance', 'FSAEJ_Endurance', False),
+                                                        ('T2', 'fsaej_endurance', 'fsaej_skidpad', True),
+                                                        ('T3', 'fsaej_endurance', None, True)):
+            payload = self.payload('penalty', lap)
+            payload['track_config'] = row_track
+            payload['evidence']['track_config'] = evidence_track
+            code, result = self.send_channel('penalty', payload)
+            self.assertEqual(code, 200)
+            self.assertEqual('evidence.track_config' in result['review_reasons'], flagged, lap)
+            self.assertFalse(result['evidence_verified'])
+            self.assertFalse(result['official'])
+
     def test_penalty_only_uncalibrated_has_math_preview_without_native_confirmation(self):
         payload = self.payload('penalty')
         payload['evidence']['calibration_verified'] = False

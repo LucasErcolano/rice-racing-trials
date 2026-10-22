@@ -95,6 +95,10 @@ def evidence_reasons(data):
     for name, expected in (('source', 'rice-client-v2'), ('detector_ok', True),
                            ('calibration_verified', True), ('track_config', data['track_config'])):
         value = evidence.get(name)
+        if name == 'track_config' and isinstance(value, str) and isinstance(expected, str):
+            # AC reports the content folder name, which Windows matches case-insensitively,
+            # while calibration files use the canonical spelling. Only letter case may differ.
+            value, expected = value.casefold(), expected.casefold()
         if value != expected or type(value) is not type(expected):
             reasons.append('evidence.' + name)
     if not isinstance(evidence.get('detector'), dict) or not evidence['detector']:
