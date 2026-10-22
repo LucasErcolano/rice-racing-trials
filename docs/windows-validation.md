@@ -1,5 +1,11 @@
 # Windows/CSP validation: in-game client load confirmed, full validation pending
 
+## V2 field pre-release scope
+
+The operator confirms CSP 2.11 at Velocity, permission to install our Lua app, LAN connectivity and use of our own Rice server/TV monitor. External Velocity leaderboard integration and final physical calibration are not prerequisites for the V2 field pre-release. Use `v2-field-testing.md` for the current opt-in installation and isolated database/port procedure. The formal sporting checklist below applies to official commissioning, not to publishing the provisional field package.
+
+**`Dummy.kn5`: validated in game by explicit operator confirmation.** This validates the patch, not every V2 detector, station or persistence API. Client autostart from `station_config.lua` is implemented and tested; its behavior on the exact field CSP installation still needs observation.
+
 The client now loads inside Assetto Corsa through CSP 0.2.11 and reaches the server (authenticates, receives the assignment, heartbeats `online:true`) on the local VM `rice-win11`; proof in `docs/evidence/windows-vm/ingame-validation.md`. This does **not** commission the app or score any attempt: on-track timing, persistence, HUD, callbacks and scoring remain unverified.
 
 **Windows packaging, installer and server: validated on a GitHub-hosted Windows runner** (Windows Server, Windows PowerShell 5.1), run `39334554771`, commit `ddeb289`, 2026-10-19: 32/32 E2E steps passed (`tests/windows/e2e-windows.ps1`), no tokens or passwords in the evidence. Covered: installer preflight, refusals and SHA-256 checks, `station_config.lua` ACL, upgrade backup and rollback, uninstall and reinstall without touching other files; DPAPI secrets per account (another account cannot decrypt); the PyInstaller server through `start-server.ps1` (API, duplicate lap, leaderboard, CSV, backup, restore, restart, LAN bind, firewall rule); the scheduled task under a dedicated local account (start, crash recovery by the supervisor). Not covered: a real reboot, AC/CSP, the track, the car, a physical rig. The AC root in that run is a fixture with placeholder files. The `-Action Stop` step was added afterwards and is validated by the next run.

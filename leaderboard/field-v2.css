@@ -1,0 +1,19 @@
+/* Field-only TV sizing. No selectors affect the V1 admin or TV pages. */
+.field-page { font-size: 20px; }
+.field-page .top { padding: 18px 24px; }
+.field-page .top h1 { font-size: 30px; }
+.field-page main { padding: 16px 24px; }
+.field-page .banner { font-size: 22px; padding: 16px; margin: 14px 24px; }
+.field-page .hint { margin: 14px 0; font-size: 16px; }
+.field-page .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.field-page input, .field-page button { font-size: 20px; min-height: 42px; padding: 8px 14px; }
+.field-page .field-table { overflow-x: auto; }
+.field-page table { width: 100%; border-collapse: collapse; }
+.field-page th { font-size: 17px; padding: 14px 12px; }
+.field-page td { font-size: 22px; padding: 18px 12px; vertical-align: top; overflow-wrap: anywhere; }
+.field-page td:nth-child(7), .field-page td:nth-child(8) { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 28px; white-space: nowrap; }
+.field-page td:nth-child(9) { max-width: 260px; font-size: 16px; }
+@media (max-width: 900px) {
+  .field-page main { padding: 12px; }
+  .field-page td { font-size: 18px; padding: 12px 8px; }
+}

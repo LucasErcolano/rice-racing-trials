@@ -96,6 +96,8 @@ def run(server_exe=None):
                                        ('assignments', dict(station_id='FIELD01', session_id='FIELD', pilot_id='PILOT'))]:
                     call('POST', '/api/admin/' + endpoint, data, admin)
                 assert 'PROVISIONAL' in call('GET', '/v2/field')
+                assert '.field-page' in call('GET', '/field-v2.css')
+                assert 'textContent' in call('GET', '/field-v2.js')
                 checks.append('field_ui')
                 call('POST', '/api/v2/laps', {'station_id': 'FIELD01'}, station, 404)
                 checks.append('heavy_ingestion_disabled')

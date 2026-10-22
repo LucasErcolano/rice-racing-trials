@@ -38,7 +38,7 @@ SYNC_MAX_BYTES = 2048            # serialized payload.sync
 VALID_STATUSES = ('valid', 'VALID')
 REQUIRED_TABLES = {'sessions', 'pilots', 'assignments', 'assignment_history', 'laps', 'reviews', 'calibrations'}
 STATIC = {'/admin': 'admin.html', '/tv': 'tv.html', '/admin.js': 'admin.js', '/tv.js': 'tv.js',
-          '/v2/field': 'field-v2.html', '/field-v2.js': 'field-v2.js',
+          '/v2/field': 'field-v2.html', '/field-v2.js': 'field-v2.js', '/field-v2.css': 'field-v2.css',
           '/admin.css': 'admin.css', '/tv.css': 'tv.css'}
 CONTENT_TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8'}
 
