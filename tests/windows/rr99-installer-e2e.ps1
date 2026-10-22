@@ -28,8 +28,10 @@ function Same($a, $b) {
 }
 function Run([string[]]$extra) {
     $exe = if ($Engine -eq 'pwsh') { 'pwsh' } else { 'powershell' }
-    $out = & $exe -NoProfile -ExecutionPolicy Bypass -File $script:inst @extra 2>&1 | Out-String
-    [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out }
+    $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'  # PS 5.1 turns native stderr into terminating errors under 'Stop'
+    try { $out = & $exe -NoProfile -ExecutionPolicy Bypass -File $script:inst @extra 2>&1 | Out-String; $code = $LASTEXITCODE }
+    finally { $ErrorActionPreference = $prev }
+    [pscustomobject]@{ Code = $code; Out = $out }
 }
 $tmp = Join-Path $env:RUNNER_TEMP ("rr99 test " + $Engine)
 if (-not $env:RUNNER_TEMP) { $tmp = Join-Path ([IO.Path]::GetTempPath()) ("rr99 test " + $Engine) }
