@@ -161,7 +161,7 @@ Log ("Entorno: " + ($env_info | ConvertTo-Json -Compress))
 
 Step 'Extraer ZIP complete' {
     Expand-Archive -LiteralPath $CompleteZip -DestinationPath $release -Force
-    foreach ($f in @('install.ps1','uninstall.ps1','start-server.ps1','configure-secrets.ps1','server-admin.ps1','RiceTrials\RiceTrials.lua','RiceTrialsServer\RiceTrialsServer.exe')) {
+    foreach ($f in @('install.ps1','uninstall.ps1','start-server.ps1','configure-secrets.ps1','server-admin.ps1','RiceTrials\RiceTrials.lua','RiceTrials\native_overlay.lua','RiceTrials\native_render.lua','RiceTrialsServer\RiceTrialsServer.exe')) {
         Assert (Test-Path (Join-Path $release $f)) "falta $f en el ZIP"
     }
     Assert (-not (Test-Path (Join-Path $release 'RiceTrials\station_config.lua'))) 'el ZIP trae station_config.lua'
@@ -210,6 +210,8 @@ Step 'install.ps1 instala con token por Read-Host y ACL restringida' {
     $report = Join-Path $Evidence 'install-report.json'
     & "$release\install.ps1" -AssettoRoot $ac -StationId ST01 -ServerUrl "http://127.0.0.1:$Port" -SkipArchiveHashes -EnableDiagnostics -ReportPath $report
     Assert (Test-Path "$target\RiceTrials.lua") 'app no instalada'
+    foreach ($m in @('native_overlay.lua','native_render.lua')) { Assert (Test-Path "$target\$m") "overlay nativo no instalado: $m" }
+    Assert ((Get-Content "$target\manifest.ini" -Raw) -match 'windowNative') 'manifest sin la ventana windowNative'
     Assert ($global:RicePrompts[-1] -match 'Station token') 'no pidió el token por Read-Host'
     $config = [IO.File]::ReadAllText("$target\station_config.lua")
     Assert ((Decode-LuaBytes $config 'station_token') -ceq $stationA) 'station_token mal codificado'
