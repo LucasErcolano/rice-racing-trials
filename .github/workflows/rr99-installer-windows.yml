@@ -1,0 +1,24 @@
+# RR99 installer test on Windows (PowerShell 5.1 and 7) with a synthetic MFT02 tree. No game assets, no secrets.
+# Manual trigger only; contents: read; publishes nothing.
+name: RR99 installer (Windows)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  installer:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $PSVersionTable.PSVersion
+          powershell -NoProfile -ExecutionPolicy Bypass -File tests/windows/rr99-installer-e2e.ps1 -Installer "$PWD\packaging\rr99\Install-RR99.ps1" -Engine powershell
+          exit $LASTEXITCODE
+      - name: PowerShell 7
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File tests/windows/rr99-installer-e2e.ps1 -Installer "$PWD\packaging\rr99\Install-RR99.ps1" -Engine pwsh
+          exit $LASTEXITCODE
