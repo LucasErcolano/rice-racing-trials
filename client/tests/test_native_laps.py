@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class Native(unittest.TestCase):
     def runtime(self, disk, fail_save=False):
         lua = LuaRuntime(unpack_returned_tuples=True)
-        lua.execute("package.path = '%s/?.lua;' .. package.path" % ROOT)
+        lua.execute("package.path = '%s/?.lua;' .. package.path" % ROOT.as_posix())
         wrap = lua.eval('function(f) return function(...) return f(...) end end')
         def save(p, d):
             if fail_save: return False

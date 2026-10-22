@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class Delta(unittest.TestCase):
     def setUp(self):
         self.lua = LuaRuntime(unpack_returned_tuples=True)
-        self.lua.execute("package.path = '%s/?.lua;' .. package.path" % ROOT)
+        self.lua.execute("package.path = '%s/?.lua;' .. package.path" % ROOT.as_posix())
         self.m = self.lua.eval("(require('delta'))")
 
     def lap(self, d, total_ms, start=0.0, penalty_at=None, penalty_ms=0, steps=200, spline=True, length_m=3000.0):

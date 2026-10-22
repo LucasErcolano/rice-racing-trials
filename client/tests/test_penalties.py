@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def penalties_module():
     lua = LuaRuntime(unpack_returned_tuples=True)
-    lua.execute("package.path = '%s/?.lua;' .. package.path" % ROOT)
+    lua.execute("package.path = '%s/?.lua;' .. package.path" % ROOT.as_posix())
     return lua, lua.eval("(require('penalties'))")
 
 
