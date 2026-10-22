@@ -1,0 +1,5 @@
+# Offline-only dependencies; not part of RiceTrials packaging.
+numpy==2.5.4
+shapely==2.2.0
+matplotlib==3.11.2
+scipy==1.18.1
