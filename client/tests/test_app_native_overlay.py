@@ -5,6 +5,7 @@ values the V2 client already computed, and a missing detector/penalty evidence
 is shown as a placeholder, never as 0.
 """
 import unittest
+from pathlib import Path
 
 from test_app_hud import lines, capture_ui
 from test_network import harness
@@ -137,9 +138,7 @@ class AppNativeOverlay(unittest.TestCase):
         self.assertIn('pushACFont', [c[0] for c in self.calls])
 
     def test_manifest_declares_native_window(self):
-        root = __file__.rsplit('/', 2)[0]
-        with open(root + '/manifest.ini') as fh:
-            manifest = fh.read()
+        manifest = (Path(__file__).resolve().parents[1] / 'manifest.ini').read_text(encoding='utf-8')
         self.assertIn('FUNCTION_MAIN = windowNative', manifest)
         self.assertIn('ID = native', manifest)
 
