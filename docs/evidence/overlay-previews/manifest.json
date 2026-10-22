@@ -1,0 +1,26 @@
+{
+  "timing_clean": {
+    "calls": 17
+  },
+  "timing_penalty": {
+    "calls": 21
+  },
+  "timing_no_evidence": {
+    "calls": 21
+  },
+  "timing_outlap": {
+    "calls": 17
+  },
+  "delta_faster": {
+    "calls": 8
+  },
+  "delta_slower": {
+    "calls": 8
+  },
+  "delta_no_reference": {
+    "calls": 5
+  },
+  "delta_pending": {
+    "calls": 5
+  }
+}
