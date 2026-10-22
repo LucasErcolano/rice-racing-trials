@@ -29,9 +29,10 @@ local function coneReset()
   fieldSamples, fieldSampleClock, fieldTruncated = {}, 0.5, false
   conePrev, coneIds, maxWheelsOut, autoCones = nil, {}, 0, 0
   offTimes, gateTimes = {}, {}
-  if coneMachine then coneMachine:reset() end
-  if limitsMachine then limitsMachine:reset() end
-  if slalomMachine then slalomMachine:reset() end
+  -- A broken optional detector must not prevent other resets (or reuse stale counts).
+  if coneMachine and not pcall(coneMachine.reset, coneMachine) then coneMachine=nil end
+  if limitsMachine and not pcall(limitsMachine.reset, limitsMachine) then limitsMachine=nil end
+  if slalomMachine and not pcall(slalomMachine.reset, slalomMachine) then slalomMachine=nil end
 end
 local function slalomResult()
   if not slalomMachine then return nil end
@@ -413,8 +414,11 @@ function script.configure(config)
   return true
 end
 local function resetRoute(reason)
-  if calibration then route = core.route_machine(calibration.route) end
   previous, started, frozen = nil, nil, nil
+  if calibration then
+    local ok, fresh = pcall(core.route_machine, calibration.route)
+    if ok then route=fresh else route, calibration=nil, nil end
+  end
   liveDelta = nil
   if deltaD then pcall(deltaD.abort, deltaD) end
   coneReset()
@@ -428,10 +432,12 @@ if ac and type(ac.onCarJumped) == 'function' then
 end
 if ac and type(ac.onSessionStart) == 'function' then
   pcall(ac.onSessionStart, function()
-    resetRoute('SESSION_START'); lastResetCounter = nil; script.refreshAssignment()
-    if nativeLaps then pcall(nativeLaps.session_start, nativeLaps) end
+    -- Native epochs must be invalidated before any optional route/detector work.
     if fieldV2 then pcall(fieldV2.session_start, fieldV2) end
-    fieldToken=nil
+    if nativeLaps then pcall(nativeLaps.session_start, nativeLaps) end
+    fieldToken, lastResetCounter=nil, nil
+    pcall(resetRoute, 'SESSION_START')
+    pcall(script.refreshAssignment)
   end)
 end
 -- FFI cdata raises on fields its CSP version does not define: read optional fields safely.
@@ -442,7 +448,7 @@ local function field(obj, key)
 end
 -- Never time while a replay plays, the game is paused or the menu is open (fail-closed:
 -- the current lap is discarded and a new outlap is required).
-local gatedReason = nil
+local gatedReason, nativeReplay = nil, false
 local function simGate()
   local sim = ac and type(ac.getSim) == 'function' and ac.getSim() or nil
   if not sim then return nil end
@@ -463,24 +469,32 @@ function script.update(dt)
   if penaltyStore then pcall(penaltyStore.flush, penaltyStore, dt) end
   autostart()
   diagnose(dt)
+  local gate = simGate() -- independent of route/calibration availability
+  local replay = gate == 'REPLAY'
+  local nativeCar
   if (nativeLaps or fieldV2) and ac and type(ac.getCar) == 'function' then
-    local okC, nativeCar = pcall(ac.getCar, 0)
-    if okC and nativeCar then
-      if nativeLaps then pcall(nativeLaps.observe, nativeLaps, nativeCar, dt) end
-      if fieldV2 then pcall(fieldV2.observe, fieldV2, nativeCar, dt); pcall(fieldV2.pump, fieldV2) end
-    end
+    local okC, car = pcall(ac.getCar, 0)
+    if okC then nativeCar=car end
+  end
+  if nativeLaps then
+    if replay and not nativeReplay then pcall(nativeLaps.session_start, nativeLaps) end
+    if not replay and nativeCar then pcall(nativeLaps.observe, nativeLaps, nativeCar, dt) end
+  end
+  nativeReplay=replay
+  if fieldV2 then
+    pcall(fieldV2.observe, fieldV2, nativeCar, dt, replay)
+    pcall(fieldV2.pump, fieldV2) -- transport must run even without a live car
   end
   if type(dt) ~= 'number' or dt <= 0 or dt > 1 then resetRoute(); return end
   retryClock, heartbeatClock, gameClock = retryClock + dt, heartbeatClock + dt, gameClock + dt
   if retryClock >= 5 then retryClock = 0; sendPending() end
   if heartbeatClock >= 30 then heartbeatClock = 0; beat(); script.refreshAssignment() end
-  if not calibration or blocked then return end
-  local gate = simGate()
   if gate then
     if gatedReason ~= gate then resetRoute(gate); lastResetCounter = nil; gatedReason = gate end
     return
   end
   gatedReason = nil
+  if not calibration or blocked then return end
   local car = ac.getCar(0)
   if not car or not car.position then resetRoute(); return end
   local current = {x=car.position.x, z=car.position.z}

@@ -76,6 +76,33 @@ function M.new(opts)
     n.records[#n.records+1]=r
     return r
   end
+  local function capture(record,car)
+    local raw=field(car,'previousLapTimeMs')
+    if not (integer(raw) and raw>0 and raw<=3600000) then
+      record.capture_state='awaiting_previous_lap_time'
+      return false
+    end
+    record.raw_ms=raw; record.capture_state='captured'
+    if validContext(record.context) then
+      local body=envelope('native',record.id,record.context,raw)
+      local v=field(car,'isLastLapValid')
+      record.native_valid=v
+      body.native_valid=v==true
+      if type(v)~='boolean' then body.native_valid_available=false end
+      n.queue[#n.queue+1]={id=body.message_id,payload=opts.encode(body)}
+    end
+    n.pending_completion=nil
+    return true
+  end
+  local function captureEvidence(evidence,native)
+    if not native or not native.capture_state or native.raw_ms then return end
+    evidence.native_capture={lap_id=native.id,lap_count=native.lap_count,
+      epoch=native.epoch,state=native.capture_state,
+      superseded_by_lap_count=native.superseded_by_lap_count,
+      interruption_reason=native.interruption_reason}
+    evidence.review_reasons=evidence.review_reasons or {}
+    table.insert(evidence.review_reasons,native.capture_state)
+  end
   local function resolve()
     local changed=false
     for _,r in ipairs(p.records) do
@@ -88,6 +115,7 @@ function M.new(opts)
           r.snapshot.evidence.detector_ok=false
           r.snapshot.evidence.review_reasons=r.snapshot.evidence.review_reasons or {}
           table.insert(r.snapshot.evidence.review_reasons,'native_capture_missing')
+          captureEvidence(r.snapshot.evidence,native)
           native=nil
         end
         if r.standalone or (native and integer(native.raw_ms) and native.raw_ms>0) then
@@ -130,44 +158,72 @@ function M.new(opts)
     snapshot=clone(snapshot)
     if standalone then
       p.seq=p.seq+1; id=p.nonce..'-r-'..p.seq
-      snapshot.evidence.review_reasons={'identity_ambiguous'}
+      snapshot.evidence.review_reasons=snapshot.evidence.review_reasons or {}
+      table.insert(snapshot.evidence.review_reasons,'identity_ambiguous')
+      captureEvidence(snapshot.evidence,r)
       snapshot.evidence.detector_ok=false
     end
     p.records[#p.records+1]={id=id,route_token=routeToken,raw_ms=raw,context=clone(r.context),snapshot=snapshot,standalone=standalone}
     local ok=save('penalty'); resolve(); return ok
   end
-  function o:session_start()
-    n.epoch=n.epoch+1; n.ref=nil; n.context=nil
+  function o:session_start(reason)
+    local pending=n.pending_completion and find(n.pending_completion)
+    if pending then
+      pending.capture_state='native_capture_interrupted'
+      pending.interruption_reason=reason or 'session_start'
+    end
+    n.epoch=n.epoch+1; n.ref=nil; n.context=nil; n.pending_completion=nil
     save('native')
   end
-  function o:observe(car,dt)
+  function o:observe(car,dt,replay)
     if type(dt)=='number' and dt>0 and dt<=1 then
       self.clock=self.clock+dt
       for _,r in ipairs(p.records) do if not r.queued then r.wait_s=(r.wait_s or 0)+dt end end
     end
     if states.native=='corrupt' then return end
+    -- Replay counters are not live completions. Persist the boundary so a restart
+    -- during replay still requires a fresh baseline before accepting live laps.
+    if replay==true then
+      if not n.replay then
+        n.replay=true; self:session_start('replay')
+      end
+      return
+    end
+    if n.replay then n.replay=nil; save('native') end
     local lc=field(car,'lapCount')
     if not integer(lc) then return end
     local ctx=opts.context()
     if n.ref==nil or lc<n.ref then
-      if n.ref~=nil then n.epoch=n.epoch+1 end
+      if n.ref~=nil then self:session_start('counter_reset') end
       n.ref=lc; n.context=validContext(ctx) and clone(ctx) or nil; save('native')
     elseif lc>n.ref then
-      local record=slot(lc)
-      local raw=field(car,'previousLapTimeMs')
-      if integer(raw) and raw>0 and raw<=3600000 then
-        record.raw_ms=raw
-        if validContext(record.context) then
-          local body=envelope('native',record.id,record.context,raw)
-          local v=field(car,'isLastLapValid')
-          record.native_valid=v
-          body.native_valid=v==true
-          if type(v)~='boolean' then body.native_valid_available=false end
-          n.queue[#n.queue+1]={id=body.message_id,payload=opts.encode(body)}
+      local pending=n.pending_completion and find(n.pending_completion)
+      if pending then
+        pending.capture_state='native_time_unavailable'
+        pending.superseded_by_lap_count=lc
+        n.pending_completion=nil
+      end
+      if lc>n.ref+1 then
+        -- One range, not one allocation per missed counter (a replay/jump can be huge).
+        n.gaps=n.gaps or {}
+        n.gaps[#n.gaps+1]={epoch=n.epoch,from_lap_count=n.ref+1,to_lap_count=lc-1,
+          reason='native_counter_gap'}
+        for _,r in ipairs(n.records) do
+          if r.epoch==n.epoch and r.lap_count>n.ref and r.lap_count<lc and not r.raw_ms then
+            r.capture_state='native_counter_gap'; r.superseded_by_lap_count=lc
+          end
         end
       end
+      local record=slot(lc)
+      n.pending_completion=record.id
+      capture(record,car)
       n.ref=lc; n.context=validContext(ctx) and clone(ctx) or nil
       save('native'); resolve()
+    elseif n.pending_completion then
+      local record=find(n.pending_completion)
+      if record and record.epoch==n.epoch and record.lap_count==lc and capture(record,car) then
+        save('native'); resolve()
+      end
     elseif not validContext(n.context) and validContext(ctx) then
       n.context=clone(ctx); save('native')
     end
