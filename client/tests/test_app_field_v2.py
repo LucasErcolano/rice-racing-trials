@@ -44,6 +44,32 @@ class AppField(unittest.TestCase):
         self.assertEqual((body['session_id'], body['pilot_id']), ('S1', 'P1'))
         self.assertEqual(body['assignment_revision'], 1)
 
+    def test_expired_assignment_does_not_attribute_the_next_native_lap(self):
+        lua, disk, _, requests, reply, _ = app()
+        for _ in range(661):  # 594.9 game-clock seconds, leaving about five seconds.
+            before = len(requests)
+            lua.globals().script.update(.9)
+            for request in requests[before:]:
+                if request[0] == 'GET' and request[1].endswith('/api/station/assignment'):
+                    request[4]('offline', None)
+        lua.globals().script.refreshAssignment()
+        requests[-1][4]('offline', None)
+        saved = persisted(disk)
+        self.assertGreater(saved['assignment_remaining_s'], 0)
+        self.assertLess(saved['assignment_remaining_s'], 6)
+
+        lua, _, _, requests, reply, _ = app(disk, assigned=False)
+        reply(0, None, err='offline')
+        for _ in range(6):
+            lua.globals().script.update(.9)
+        lua.execute('CAR.lapCount=1; CAR.previousLapTimeMs=217853; CAR.isLastLapValid=true')
+        lua.globals().script.update(.1)
+        native = [r for r in requests if r[1].endswith('/api/v2/native-laps')]
+        self.assertEqual(len(native), 1)
+        body = json.loads(native[0][3])
+        self.assertEqual((body['session_id'], body['pilot_id']), ('UNASSIGNED', 'UNASSIGNED'))
+        self.assertEqual(body['assignment_state'], 'UNASSIGNED')
+
     def test_opt_in_native_posts_without_route_and_preserves_local_backup(self):
         lua, disk, _, requests, _, _=app()
         lua.execute('CAR.lapCount=1')

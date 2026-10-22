@@ -508,9 +508,18 @@ local function diagnose(dt)
     detector={phase=route and route.phase or nil, status=status, crossings=crossings},
     connection={online=online, pending=#queue.entries, persistence=persistence}})
 end
+function script.expireAssignment(dt)
+  local validClockStep = type(dt) == 'number' and dt > 0 and dt <= 1
+  if validClockStep and assignment and assignmentAt and
+      gameClock + dt - assignmentAt > ASSIGNMENT_STALE_S then
+    assignment, assignmentAt = nil, nil
+    if persist() then status = 'ASSIGNMENT_EXPIRED / UNASSIGNED / PENDING_REVIEW ONLY' end
+  end
+end
 function script.update(dt)
   if penaltyStore then pcall(penaltyStore.flush, penaltyStore, dt) end
   autostart()
+  script.expireAssignment(dt)
   diagnose(dt)
   local gate = simGate() -- independent of route/calibration availability
   local replay = gate == 'REPLAY'

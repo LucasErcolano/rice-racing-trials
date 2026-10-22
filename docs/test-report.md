@@ -4,7 +4,7 @@ Fecha de la última corrida V2 de campo: 2026-10-22.
 
 ## V2 de campo
 
-Última ejecución Linux del candidato integrado `integration/v0.3.0-rc.2-final` (2026-10-22): 185 tests de servidor, integración, navegador, empaquetado y auditoría RR99 (OK; 4 omitidos por prerrequisitos opcionales), 247 tests de cliente Lua (OK; 2 omitidos) y 25 escenarios MOCK de LuaJIT 2.1 (24 OK; 1 omitido por falta de geometría local). El smoke OR independiente de HTTP/proceso/SQLite pasó sus 11 controles, incluidos ambos órdenes de llegada, duplicados, conflictos, reinicio, canales separados y exclusión del ranking oficial. Incluye la regresión de reinicio de app durante una caída de red con caché de asignación autenticada.
+Última ejecución Linux del candidato integrado `integration/v0.3.0-rc.2-final` (2026-10-22): 185 tests de servidor, integración, navegador, empaquetado y auditoría RR99 (OK; 4 omitidos por prerrequisitos opcionales), 248 tests de cliente Lua (OK; 2 omitidos) y 25 escenarios MOCK de LuaJIT 2.1 (24 OK; 1 omitido por falta de geometría local). El smoke OR independiente de HTTP/proceso/SQLite pasó sus 11 controles, incluidos ambos órdenes de llegada, duplicados, conflictos, reinicio, canales separados y exclusión del ranking oficial. Incluye la regresión que garantiza que la asignación autenticada no se reutilice tras 600 s de reloj de juego al procesar la siguiente vuelta nativa.
 
 El smoke OR usa procesos y HTTP reales: autenticación, ambos órdenes de llegada, duplicados, conflicto, reinicio, persistencia y exclusión del ranking oficial. Chromium prueba el monitor V2, su auto-refresco, export y revisión administrativa. La evidencia Windows se genera en el workflow del paquete, incluyendo este mismo smoke contra el exe compilado.
 
