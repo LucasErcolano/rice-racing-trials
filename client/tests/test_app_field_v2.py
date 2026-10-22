@@ -1,11 +1,11 @@
 """Production app opt-in wiring exercised by real Lua, no simulator required."""
 import json
 import unittest
-from test_network import harness, config, drive_lap
+from test_network import harness, config, drive_lap, persisted
 from test_app_hud import STATION, capture_ui, lines
 
 
-def app(disk=None, enabled=True, native_missing=False):
+def app(disk=None, enabled=True, native_missing=False, assigned=True):
     def pre(lua):
         if native_missing:
             lua.execute("package.preload['native_laps']=function() error('backup unavailable') end")
@@ -18,12 +18,32 @@ def app(disk=None, enabled=True, native_missing=False):
     result=harness(disk, pre)
     lua, _, _, requests, reply, _=result
     lua.globals().script.update(.1)
-    reply(0, {'station_id':'ST01','session_id':'S1','pilot_id':'P1'})
+    if assigned:
+        reply(0, {'station_id':'ST01','session_id':'S1','pilot_id':'P1','assignment_revision':1})
     lua.globals().script.update(.1)
     return result
 
 
 class AppField(unittest.TestCase):
+    def test_authenticated_assignment_cache_survives_app_restart_during_outage(self):
+        _, disk, _, _, _, _ = app()
+        saved = persisted(disk)
+        self.assertEqual(saved['assignment_cache']['session_id'], 'S1')
+        self.assertEqual(saved['assignment_cache']['pilot_id'], 'P1')
+        self.assertEqual(saved['assignment_cache']['assignment_revision'], 1)
+        self.assertEqual(saved['assignment_remaining_s'], 600)
+
+        lua, _, _, requests, reply, _ = app(disk, assigned=False)
+        reply(0, None, err='offline')
+        lua.globals().script.update(.1)
+        lua.execute('CAR.lapCount=1; CAR.previousLapTimeMs=217853; CAR.isLastLapValid=true')
+        lua.globals().script.update(.1)
+        native = [r for r in requests if r[1].endswith('/api/v2/native-laps')]
+        self.assertEqual(len(native), 1)
+        body = json.loads(native[0][3])
+        self.assertEqual((body['session_id'], body['pilot_id']), ('S1', 'P1'))
+        self.assertEqual(body['assignment_revision'], 1)
+
     def test_opt_in_native_posts_without_route_and_preserves_local_backup(self):
         lua, disk, _, requests, _, _=app()
         lua.execute('CAR.lapCount=1')

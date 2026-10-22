@@ -21,6 +21,9 @@ def runtime(disk=None):
         decode=function(v) return JSON.parse(v) end,
         post=function(channel, payload, cb)
           FIELD_POSTS[#FIELD_POSTS+1]={channel=channel,payload=payload,cb=cb}
+        end,
+        native_evidence=function(record)
+          if record.raw_ms==217853 and record.lap_count==2 then return true end
         end})
     """)
     return lua, disk, lua.globals().FIELD, to_lua
@@ -36,6 +39,37 @@ def posts(lua, channel=None):
 
 
 class FieldProducer(unittest.TestCase):
+    def test_old_captured_contextless_native_draft_migrates_to_unassigned(self):
+        lua, disk, _, cv = runtime()
+        lua.execute("""
+          local j=fieldJournal('field_native_v2')
+          j:save({{version=1,nonce='boot',seq=2,epoch=1,ref=2,queue={},records={{
+            id='boot-n-2',lap_count=2,epoch=1,raw_ms=217853,capture_state='captured'}}}})
+        """)
+        lua2, _, field, _ = runtime(disk)
+        field.pump(field)
+        payload = posts(lua2, 'native')[0][0]
+        self.assertEqual(payload['lap_id'], 'boot-n-2')
+        self.assertEqual(payload['raw_ms'], 217853)
+        self.assertEqual(payload['session_id'], 'UNASSIGNED')
+        self.assertEqual(payload['pilot_id'], 'UNASSIGNED')
+        self.assertEqual(payload['assignment_state'], 'UNASSIGNED')
+        self.assertTrue(payload['native_valid'])
+        self.assertNotIn('native_valid_available', payload)
+
+    def test_native_capture_without_assignment_is_queued_as_unassigned(self):
+        lua, disk, o, cv = runtime()
+        lua.execute("FIELD_CONTEXT.session_id=nil; FIELD_CONTEXT.pilot_id=nil")
+        o.observe(o, cv({'lapCount': 0}), .1)
+        o.observe(o, cv({'lapCount': 1, 'previousLapTimeMs': 217853, 'isLastLapValid': True}), .1)
+        o.pump(o)
+        payload = posts(lua, 'native')[0][0]
+        self.assertEqual(payload['session_id'], 'UNASSIGNED')
+        self.assertEqual(payload['pilot_id'], 'UNASSIGNED')
+        self.assertEqual(payload['raw_ms'], 217853)
+        self.assertEqual(payload['assignment_state'], 'UNASSIGNED')
+        self.assertTrue(payload['native_valid'])
+
     def test_native_capture_is_durable_and_retry_bytes_survive_restart(self):
         lua, disk, o, cv = runtime()
         o.observe(o, cv({'lapCount': 0}), .1)

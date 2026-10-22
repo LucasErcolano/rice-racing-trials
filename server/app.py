@@ -998,6 +998,11 @@ def make_handler(store, admin_token, station_tokens):
                         return self.send(200, field_v2.review(store, data))
                     except field_v2.FieldError as error:
                         raise Problem(error.code, error.message) from None
+                if path in ('/api/admin/v2/assign-unassigned', '/api/admin/v2/field-assign'):
+                    try:
+                        return self.send(200, field_v2.assign_unassigned(store, data))
+                    except field_v2.FieldError as error:
+                        raise Problem(error.code, error.message) from None
                 if path == '/api/admin/v2/config':
                     if data.get('station_id') not in station_tokens:
                         raise Problem(400, 'unknown station')
