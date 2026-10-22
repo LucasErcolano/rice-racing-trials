@@ -162,21 +162,9 @@ local function fieldSnapshot()
       off_course_penalty_ms=math.floor(cfg.off_course.s*1000+0.5),
       slalom_penalty_ms=math.floor(cfg.slalom.s*1000+0.5)}
   end
-  local events, charged = {}, 0
-  for _,id in ipairs(coneIds or {}) do
-    local penalizable=autoPenalties and not coneExcluded[id] and charged<maxAutoCones
-    if penalizable then charged=charged+1 end
-    events[#events+1]={type='cone_contact',cone_id=id,penalizable=penalizable}
-  end
-  if autoPenalties then
-    for i,t in ipairs(offTimes) do
-      events[#events+1]={type='off_course',incident_id='off-'..i,penalizable=true,at_ms=math.floor(t*1000+0.5)}
-    end
-    local sl=slalomResult()
-    if sl then for _,id in ipairs(sl.violations) do
-      events[#events+1]={type='slalom_violation',incident_id='slalom-'..id,penalizable=true,gate_id=id}
-    end end
-  end
+  local sl = slalomResult()
+  local events = require('field_v2').penalty_events(coneIds or {}, coneExcluded, maxAutoCones,
+    offTimes, sl and sl.violations or {}, gateTimes, cfg or {}, autoPenalties)
   return {events=events,settings=settings,evidence={source='rice-client-v2',
     detector_ok=false,calibration_verified=false,track_config=calibration and calibration.track_id,
     detector=coneDetector() or {available=false},review_reasons={'physical_calibration_unverified'},

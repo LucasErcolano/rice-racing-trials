@@ -45,7 +45,7 @@ def calibration_report(config):
     if not isinstance(slaloms, dict) or slaloms.get('calibrated') is not True:
         missing.append('slaloms')
     route = config.get('route')
-    if not isinstance(route, dict) or route.get('calibrated') is False or not isinstance(route.get('points'), list) or len(route['points']) < 2:
+    if not isinstance(route, dict) or route.get('calibrated') is not True or not isinstance(route.get('points'), list) or len(route['points']) < 2:
         missing.append('route')
     trace = {
         'protocol': penalties_v2.PROTOCOL,

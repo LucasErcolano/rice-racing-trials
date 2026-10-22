@@ -18,6 +18,19 @@ class PenaltyCalibrationTests(unittest.TestCase):
         self.assertFalse(report['ready_for_automatic_scoring'])
         self.assertEqual(report['uncalibrated_sections'], ['boundaries', 'cones', 'route', 'slaloms'])
 
+    def test_report_requires_explicit_boolean_route_calibration(self):
+        from tests.test_penalties_v2 import config
+        for flag in (None, False, 0, 1, 'true'):
+            with self.subTest(flag=flag):
+                geometry = config()
+                if flag is None:
+                    geometry['route'].pop('calibrated', None)
+                else:
+                    geometry['route']['calibrated'] = flag
+                report = calibration_report(geometry)
+                self.assertFalse(report['ready_for_automatic_scoring'])
+                self.assertIn('route', report['uncalibrated_sections'])
+
     def test_report_recognizes_synthetic_fully_calibrated_geometry(self):
         from tests.test_penalties_v2 import config
         report = calibration_report(config())

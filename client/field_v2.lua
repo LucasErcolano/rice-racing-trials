@@ -10,6 +10,38 @@ local function validContext(c)
   end
   return true
 end
+function M.penalty_events(cone_ids, excluded, max_cones, off_times, violations, gate_times, cfg, auto)
+  local events, charged = {}, 0
+  auto = auto ~= false
+  for _, id in ipairs(cone_ids or {}) do
+    local eligible = auto and not excluded[id] and charged < max_cones
+    if eligible then charged = charged + 1 end
+    events[#events+1] = {type='cone_contact', cone_id=id, penalizable=eligible}
+  end
+  if not auto then return events end
+  local slalom_times = {}
+  for _, id in ipairs(violations or {}) do
+    if gate_times[id] then slalom_times[#slalom_times+1] = gate_times[id] end
+  end
+  local dedupe = (cfg.dedupe_ms or 0) / 1000
+  local suppress_overlap = cfg.slalom and cfg.slalom.on and cfg.slalom.s > 0 and dedupe > 0
+  for i, t in ipairs(off_times or {}) do
+    local eligible = i <= 100
+    if suppress_overlap then
+      for _, s in ipairs(slalom_times) do
+        if math.abs(t-s) <= dedupe then eligible = false; break end
+      end
+    end
+    events[#events+1] = {type='off_course', incident_id='off-'..i,
+      penalizable=eligible, at_ms=math.floor(t*1000+0.5)}
+  end
+  for _, id in ipairs(violations or {}) do
+    events[#events+1] = {type='slalom_violation', incident_id='slalom-'..id,
+      penalizable=true, gate_id=id}
+  end
+  return events
+end
+
 function M.new(opts)
   local o = {busy={}, dirty={},clock=0,due={},attempt={}}
   local journals,states,data={},{},{}
