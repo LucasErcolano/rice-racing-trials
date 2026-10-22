@@ -29,6 +29,17 @@ Los canales nativo y penalizado tienen persistencia y reintentos separados. El c
 
 La independencia es de colas y transporte dentro del cliente: ambos canales comparten AC, CSP, la app, el disco y el equipo. Si ese runtime no captura la vuelta, no hay un segundo cronometraje externo garantizado. El journal nativo es el fallback local disponible, no una integración confirmada con Velocity.
 
+Cada fila trae `penalty_evidence_state` (columna "Penalizaciones" en la TV) y `disabled_penalties`:
+
+| Estado | Significado |
+| --- | --- |
+| `ABSENT` | Sólo llegó la nativa. Penalizaciones pendientes, nunca cero. |
+| `INCOMPLETE` | Llegó evidencia pero falta o es inválida (detector, calibración, eventos sin resolver). |
+| `ZERO_INCIDENTS` | Evidencia completa y sin incidentes penalizables. |
+| `PENALIZED` | Evidencia completa con penalización calculada en el servidor. |
+| `PENALTIES_DISABLED` | Hubo incidentes registrados, pero su penalización estaba deshabilitada. La evidencia se conserva. |
+| `CONFLICT` | Los mensajes se contradicen. Va a revisión manual sin tiempo corregido. |
+
 ## Pantalla propia y verificación de campo
 
 Abrir `http://<IP-LAN-del-servidor>:8082/v2/field` en la TV. Ingresar el token admin de la instancia V2 (no va en la URL). Se conserva sólo en memoria. La pantalla actualiza cada 3 segundos y muestra una única fila por estación/sesión/vuelta, bruto nativo, previsualización corregida y razones de revisión. `/admin` y `/tv` conservan la V1 y NO son el monitor provisional. Los paquetes incluyen rutas y conos de Endurance para empezar; pueden ajustarse durante las pruebas. No hace falta una API de Velocity.
