@@ -1,4 +1,8 @@
-# Cronometraje nativo: análisis reproducible y parche candidato (CANDIDATO NO VERIFICADO EN JUEGO)
+# Cronometraje nativo: análisis reproducible y validación de Dummy.kn5
+
+## Estado confirmado para V2
+
+El usuario confirmó que el `Dummy.kn5` seleccionado ya fue probado en Assetto Corsa y funciona. Se marca como validado en juego por confirmación del usuario, no como una nueva prueba automatizada de esta entrega. Esa validación no comisiona la geometría de penalizaciones ni habilita scoring oficial. Las variantes históricas candidatas descritas abajo conservan sus propios límites y no heredan esta validación automáticamente. No se modifica ni se reinstala la pista en esta entrega.
 
 ## Hechos medidos (Linux, sin ejecutar Assetto)
 

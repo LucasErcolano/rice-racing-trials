@@ -26,6 +26,7 @@ param(
     [string]$TaskName = 'RiceTrialsServer',
     [string]$RemoteSubnet = 'LocalSubnet',
     [switch]$AllowLanBind,
+    [switch]$EnablePenaltiesV2,
     [switch]$Remove
 )
 $ErrorActionPreference = 'Stop'
@@ -143,6 +144,7 @@ switch ($Action) {
         $arguments = '-NoProfile -ExecutionPolicy Bypass -File ' + (Quote $script) + ' -SecretsPath ' + (Quote $SecretsPath) +
                      ' -DatabasePath ' + (Quote $DatabasePath) + " -HostAddress $HostAddress -Port $Port"
         if ($AllowLanBind) { $arguments += ' -AllowLanBind' }
+        if ($EnablePenaltiesV2) { $arguments += ' -EnablePenaltiesV2' }
         $taskAction = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arguments -WorkingDirectory $scriptRoot
         $trigger = New-ScheduledTaskTrigger -AtStartup
         $settings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable

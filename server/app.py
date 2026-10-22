@@ -22,21 +22,23 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 try:
-    from server import penalties_v2, scoring
+    from server import field_v2, penalties_v2, scoring
 except ImportError:  # executed as server/app.py or frozen with PyInstaller
+    import field_v2
     import penalties_v2
     import scoring
 
 ROOT = Path(__file__).resolve().parent.parent
 ID = re.compile(r'^[A-Za-z0-9_.-]{1,80}$')
 HEARTBEAT_TTL = timedelta(seconds=90)
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 SYNC_ERROR_LIMIT = 1000          # rows kept in sync_errors (oldest pruned)
 DETECTOR_MAX_BYTES = 4096        # serialized payload.detector
 SYNC_MAX_BYTES = 2048            # serialized payload.sync
 VALID_STATUSES = ('valid', 'VALID')
 REQUIRED_TABLES = {'sessions', 'pilots', 'assignments', 'assignment_history', 'laps', 'reviews', 'calibrations'}
 STATIC = {'/admin': 'admin.html', '/tv': 'tv.html', '/admin.js': 'admin.js', '/tv.js': 'tv.js',
+          '/v2/field': 'field-v2.html', '/field-v2.js': 'field-v2.js',
           '/admin.css': 'admin.css', '/tv.css': 'tv.css'}
 CONTENT_TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8'}
 
@@ -128,13 +130,16 @@ PAYLOAD_EXTRAS = ('lap_number', 'assignment_revision', 'rules_version', 'scoring
 
 
 class Store:
-    def __init__(self, path, calibrated_configs=(), scoring_armed=False, penalties_v2_enabled=False):
+    def __init__(self, path, calibrated_configs=(), scoring_armed=False, penalties_v2_enabled=False,
+                 field_v2_only=False):
         self.path = Path(path)
         # Production is unarmed: no in-game physical commissioning was performed.
         # The switch is for isolated scoring contract tests, never the CLI.
         self.scoring_armed = scoring_armed
         # V2 has a separate opt-in endpoint; V1 submission and status logic stay unchanged.
         self.penalties_v2_enabled = penalties_v2_enabled is True
+        # Dedicated field deployments reject synchronous geometry work, including replays.
+        self.field_v2_only = field_v2_only is True
         # No track is trusted by default: client self-attestation is insufficient.
         self.calibrated_configs = frozenset(calibrated_configs)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -452,6 +457,8 @@ class Store:
                 'active': True, 'updated_utc': now}
 
     def submit_v2(self, data, station):
+        if self.field_v2_only:
+            raise Problem(404, 'trajectory ingestion is disabled in field-only mode')
         if not self.penalties_v2_enabled:
             raise Problem(404, 'V2 ingestion is disabled')
         if type(data.get('protocol_version')) is not int or data['protocol_version'] != 2:
@@ -521,6 +528,8 @@ class Store:
                 'penalty_ms': result['penalty_ms'], 'analysis': result}
 
     def replay_penalties_v2(self, station, lap_id):
+        if self.field_v2_only:
+            raise Problem(404, 'trajectory replay is disabled in field-only mode')
         station, lap_id = identifier(station), identifier(lap_id)
         with self.connect() as db:
             row = db.execute('SELECT * FROM penalties_v2_replays WHERE station_id=? AND lap_id=?', (station, lap_id)).fetchone()
@@ -748,6 +757,7 @@ def migrate(path):
             CREATE INDEX IF NOT EXISTS laps_session ON laps(session_id, created_utc);
             CREATE INDEX IF NOT EXISTS sync_errors_station ON sync_errors(station_id, id);
         ''')
+        field_v2.initialize(db)
         db.execute(f'PRAGMA user_version={SCHEMA_VERSION}')
         db.commit()
     finally:
@@ -891,6 +901,18 @@ def make_handler(store, admin_token, station_tokens):
             if self.command == 'GET' and path.startswith('/api/admin/'):
                 self.authenticated(admin_token)
                 session = self.arg(args, 'session_id')
+                if path == '/api/admin/v2/field-reviews':
+                    return self.send(200, {'reviews': field_v2.review_history(store,
+                        self.arg(args, 'station_id'), session, self.arg(args, 'lap_id'))})
+                if path == '/api/admin/v2/field-laps':
+                    return self.send(200, {'laps': field_v2.list_laps(store, session)})
+                if path == '/api/admin/v2/field-export.json':
+                    return self.send(200, {'protocol': 'rice-lap-or-v2', 'provisional': True,
+                                          'official': False, 'session_filter': session,
+                                          'laps': field_v2.list_laps(store, session)}, filename='rice-field-v2.json')
+                if path == '/api/admin/v2/field-export.csv':
+                    return self.send(200, csv_text(field_v2.list_laps(store, session), field_v2.EXPORT_COLUMNS),
+                                     'text/csv; charset=utf-8', 'rice-field-v2.csv')
                 if path == '/api/admin/reviews':
                     return self.send(200, store.reviews(identifier(args.get('session_id', [''])[0])))
                 if path == '/api/admin/v2/replay':
@@ -947,6 +969,14 @@ def make_handler(store, admin_token, station_tokens):
                 claimed, lap = data.get('station_id'), data.get('lap_id')
                 self.claimed = (claimed if isinstance(claimed, str) and claimed in station_tokens else None,
                                 lap if isinstance(lap, str) and ID.fullmatch(lap) else None)
+            if path in ('/api/v2/native-laps', '/api/v2/penalty-laps'):
+                station = identifier(data.get('station_id'))
+                self.authenticated(station_tokens.get(station))
+                try:
+                    result = field_v2.receive(store, data, station, 'native' if path == '/api/v2/native-laps' else 'penalty')
+                except field_v2.FieldError as error:
+                    raise Problem(error.code, error.message) from None
+                return self.send(200, result)
             if path == '/api/v2/laps':
                 station = identifier(data.get('station_id'))
                 self.authenticated(station_tokens.get(station))
@@ -963,6 +993,11 @@ def make_handler(store, admin_token, station_tokens):
                 return self.send(200, store.heartbeat(station))
             if path.startswith('/api/admin/'):
                 self.authenticated(admin_token)
+                if path == '/api/admin/v2/field-review':
+                    try:
+                        return self.send(200, field_v2.review(store, data))
+                    except field_v2.FieldError as error:
+                        raise Problem(error.code, error.message) from None
                 if path == '/api/admin/v2/config':
                     if data.get('station_id') not in station_tokens:
                         raise Problem(400, 'unknown station')
@@ -1023,7 +1058,9 @@ def main(argv=None):
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8080)
     parser.add_argument('--enable-penalties-v2', action='store_true',
-                        help='opt in to authenticated /api/v2/laps ingestion; V1 remains unchanged')
+                        help='opt in to authenticated V2 ingestion; V1 remains unchanged')
+    parser.add_argument('--field-v2-only', action='store_true',
+                        help='disable synchronous trajectory ingestion/replay for responsive field OR channels (requires --enable-penalties-v2)')
     parser.add_argument('--restore', metavar='BACKUP', help='offline: validate BACKUP, copy current DB aside, restore into --db and exit')
     parser.add_argument('--check', action='store_true', help='offline: run integrity_check on --db and exit')
     args = parser.parse_args(argv)
@@ -1040,7 +1077,8 @@ def main(argv=None):
     if not admin or not isinstance(stations, dict) or not stations or not all(isinstance(k, str) and isinstance(v, str) and v and v != admin for k, v in stations.items()):
         parser.error('set RICE_ADMIN_TOKEN and nonempty RICE_STATION_TOKENS JSON with distinct station secrets')
     with ThreadingHTTPServer((args.host, args.port), make_handler(
-            Store(args.db, penalties_v2_enabled=args.enable_penalties_v2), admin, stations)) as server:
+            Store(args.db, penalties_v2_enabled=args.enable_penalties_v2,
+                  field_v2_only=args.field_v2_only), admin, stations)) as server:
         print(f'Listening on {args.host}:{args.port}', flush=True)
         server.serve_forever()
     return 0

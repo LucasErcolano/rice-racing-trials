@@ -1,0 +1,260 @@
+"""Independent field OR channels; no geometry analysis or official scoring.
+
+Structurally valid penalty events/settings expose server-recomputed arithmetic
+previews even without calibration or native receipt. These are NOT verified
+times: review reasons remain visible and official stays false. An explicit
+administrator attestation can set evidence_verified for the exact payload,
+never from client flags. corrected_ms/final_ms remain null. Identity/message conflicts suppress all
+previews; native-only records expose raw_ms with null penalties and previews.
+"""
+import json
+import hashlib
+from datetime import datetime, timezone
+import re
+from typing import Any
+
+try:
+    from server import scoring
+except ImportError:
+    import scoring
+
+
+class FieldError(Exception):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code, self.message = code, message
+
+
+EXPORT_COLUMNS = ['station_id', 'session_id', 'lap_id', 'pilot_id', 'track_config', 'raw_ms',
+                  'status', 'native_received', 'penalty_received', 'penalty_ms', 'corrected_preview_ms',
+                  'corrected_ms', 'final_ms', 'official', 'evidence_verified', 'review_reasons',
+                  'preview_ms', 'evidence', 'native_payload', 'penalty_payload', 'conflicts', 'verification']
+
+
+def compact(value):
+    return json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+
+def initialize(db):
+    db.execute('''CREATE TABLE IF NOT EXISTS field_v2_laps (
+        station_id TEXT NOT NULL, session_id TEXT NOT NULL, lap_id TEXT NOT NULL,
+        pilot_id TEXT NOT NULL, track_config TEXT NOT NULL, raw_ms INTEGER NOT NULL,
+        native_payload TEXT, penalty_payload TEXT, review_json TEXT NOT NULL DEFAULT '[]',
+        PRIMARY KEY(station_id,session_id,lap_id))''')
+    if 'verification_json' not in {r[1] for r in db.execute('PRAGMA table_info(field_v2_laps)')}:
+        db.execute('ALTER TABLE field_v2_laps ADD COLUMN verification_json TEXT')
+    db.execute('''CREATE TABLE IF NOT EXISTS field_v2_reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, station_id TEXT NOT NULL,
+        session_id TEXT NOT NULL, lap_id TEXT NOT NULL, payload TEXT NOT NULL)''')
+    db.execute('''CREATE TABLE IF NOT EXISTS field_v2_messages (
+        station_id TEXT NOT NULL, message_id TEXT NOT NULL, payload TEXT NOT NULL,
+        PRIMARY KEY(station_id,message_id))''')
+
+
+def validate(data, station, channel):
+    if data.get('protocol') != 'rice-lap-or-v2' or data.get('channel') != channel:
+        raise FieldError(400, 'unsupported field protocol/channel')
+    for name in ('message_id', 'station_id', 'session_id', 'pilot_id', 'track_config', 'lap_id'):
+        value = data.get(name)
+        if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,80}', value):
+            raise FieldError(400, 'invalid ' + name)
+    if data['station_id'] != station:
+        raise FieldError(403, 'station mismatch')
+    if type(data.get('raw_ms')) is not int or not 0 < data['raw_ms'] <= 3600000:
+        raise FieldError(400, 'invalid raw_ms')
+    if type(data.get('rules_version')) is not int or data['rules_version'] != 1:
+        raise FieldError(400, 'unsupported rules_version')
+    if 'native_valid' in data and type(data['native_valid']) is not bool:
+        raise FieldError(400, 'native_valid must be boolean when supplied')
+    try:
+        compact(data)
+    except (TypeError, ValueError):
+        raise FieldError(400, 'invalid finite JSON') from None
+    if channel == 'penalty':
+        events, settings, evidence = data.get('events'), data.get('settings'), data.get('evidence')
+        if not isinstance(evidence, dict):
+            raise FieldError(400, 'evidence object required')
+        if scoring.corrected_ms_v2(data['raw_ms'], events, settings) is None:
+            raise FieldError(400, 'invalid events/settings')
+        for event in events:
+            kind = event.get('type')
+            if kind not in ('cone_contact', 'off_course', 'slalom_violation', 'off_course_unresolved', 'slalom_gate_crossing'):
+                raise FieldError(400, 'unknown event type')
+            if kind in ('cone_contact', 'off_course', 'slalom_violation'):
+                name = 'cone_id' if kind == 'cone_contact' else 'incident_id'
+                identity = event.get(name)
+                if (type(event.get('penalizable')) is not bool or not isinstance(identity, str)
+                        or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,120}', identity)):
+                    raise FieldError(400, 'invalid event identity/penalizable')
+
+
+def evidence_reasons(data):
+    evidence = data['evidence']
+    reasons = []
+    for name, expected in (('source', 'rice-client-v2'), ('detector_ok', True),
+                           ('calibration_verified', True), ('track_config', data['track_config'])):
+        value = evidence.get(name)
+        if value != expected or type(value) is not type(expected):
+            reasons.append('evidence.' + name)
+    if not isinstance(evidence.get('detector'), dict) or not evidence['detector']:
+        reasons.append('evidence.detector')
+    if evidence.get('review_required') or evidence.get('review_reasons'):
+        reasons.append('evidence.review_required')
+    if any(event['type'] == 'off_course_unresolved' or event.get('review_required') for event in data['events']):
+        reasons.append('event.review_required')
+    return reasons
+
+
+def render(row):
+    item: dict[str, Any] = dict(row)
+    verified = json.loads(item.pop('verification_json', None) or 'null')
+    item['verification'] = verified
+    item['native_payload'] = json.loads(item['native_payload']) if item['native_payload'] else None
+    item['penalty_payload'] = json.loads(item['penalty_payload']) if item['penalty_payload'] else None
+    reviews = json.loads(item.pop('review_json'))
+    item['conflicts'] = [entry for entry in reviews if entry.get('kind') != 'review']
+    item['review_reasons'] = sorted({entry['reason'] for entry in reviews})
+    item.update(native_received=item['native_payload'] is not None,
+                penalty_received=item['penalty_payload'] is not None,
+                status='PENALTIES_PENDING', penalty_ms=None, final_ms=None,
+                corrected_ms=None, corrected_preview_ms=None, official=False,
+                evidence_verified=False)
+    if item['native_received'] and item['native_payload'].get('native_valid') is not True:
+        item['review_reasons'].append('native_validity_unconfirmed')
+    if item['penalty_received']:
+        item['status'] = 'PENDING_REVIEW' if item['native_received'] else 'NATIVE_PENDING'
+        penalty = item['penalty_payload']
+        item['review_reasons'] += evidence_reasons(penalty)
+        preview = scoring.corrected_ms_v2(item['raw_ms'], penalty.get('events'), penalty.get('settings'))
+        if not item['conflicts'] and preview is not None:
+            item['corrected_preview_ms'] = preview
+            item['penalty_ms'] = preview - item['raw_ms']
+    if item['conflicts']:
+        item['status'] = 'PENDING_REVIEW'
+    if (verified and verified.get('approved') is True and item['penalty_received']
+            and not item['conflicts'] and item['corrected_preview_ms'] is not None
+            and verified.get('penalty_sha256') == hashlib.sha256(
+                compact(item['penalty_payload']).encode('utf-8')).hexdigest()):
+        item['evidence_verified'] = True
+        item['status'] = 'VERIFIED_PROVISIONAL'
+    item['preview_ms'] = item['corrected_preview_ms']
+    item['evidence'] = item['penalty_payload']['evidence'] if item['penalty_received'] else None
+    return item
+
+
+def receive(store, data, station, channel):
+    if not store.penalties_v2_enabled:
+        raise FieldError(404, 'V2 ingestion is disabled')
+    # Recognize altered accepted message IDs even when their new body is malformed.
+    if not isinstance(data.get('message_id'), str):
+        raise FieldError(400, 'invalid message_id')
+    try:
+        payload = compact(data)
+    except (TypeError, ValueError):
+        raise FieldError(400, 'invalid finite JSON') from None
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        old = db.execute('SELECT payload FROM field_v2_messages WHERE station_id=? AND message_id=?',
+                         (station, data['message_id'])).fetchone()
+        conflict = None
+        if old and old['payload'] != payload:
+            original = json.loads(old['payload'])
+            key = (station, original['session_id'], original['lap_id'])
+            conflict = 'message_id_payload_conflict'
+        else:
+            validate(data, station, channel)
+            key = (station, data['session_id'], data['lap_id'])
+        row = db.execute('SELECT * FROM field_v2_laps WHERE station_id=? AND session_id=? AND lap_id=?', key).fetchone()
+        # A penalty-only raw claim cannot replace the independent native clock.
+        # Preserve the discrepant original evidence and withhold any preview.
+        if (not conflict and row and channel == 'native' and not row['native_payload']
+                and row['pilot_id'] == data['pilot_id'] and row['track_config'] == data['track_config']
+                and row['raw_ms'] != data['raw_ms']):
+            reviews = json.loads(row['review_json'])
+            reviews.append({'reason': 'lap_identity_conflict', 'channel': 'penalty',
+                            'payload': json.loads(row['penalty_payload'])})
+            db.execute('UPDATE field_v2_laps SET raw_ms=?,review_json=? WHERE station_id=? AND session_id=? AND lap_id=?',
+                       (data['raw_ms'], compact(reviews)) + key)
+            row = db.execute('SELECT * FROM field_v2_laps WHERE station_id=? AND session_id=? AND lap_id=?', key).fetchone()
+        if row and any(row[name] != data.get(name) for name in ('pilot_id', 'track_config', 'raw_ms')):
+            conflict = conflict or 'lap_identity_conflict'
+        if row and row[channel + '_payload'] and not conflict:
+            previous = json.loads(row[channel + '_payload'])
+            if previous != data:
+                conflict = 'channel_payload_conflict'
+        if conflict:
+            conflicts = json.loads(row['review_json'])
+            entry = {'reason': conflict, 'payload': data}
+            if entry not in conflicts:
+                conflicts.append(entry)
+            db.execute('UPDATE field_v2_laps SET review_json=? WHERE station_id=? AND session_id=? AND lap_id=?',
+                       (compact(conflicts),) + key)
+        elif not row:
+            assignment = db.execute('SELECT session_id,pilot_id FROM assignments WHERE station_id=?', (station,)).fetchone()
+            reviews = []
+            if not assignment or (assignment['session_id'], assignment['pilot_id']) != (data['session_id'], data['pilot_id']):
+                historical = db.execute('SELECT 1 FROM assignment_history WHERE station_id=? AND session_id=? AND pilot_id=?',
+                                        (station, data['session_id'], data['pilot_id'])).fetchone()
+                if not historical:
+                    raise FieldError(409, 'station assignment mismatch')
+                reviews.append({'reason': 'historical_assignment', 'kind': 'review'})
+            db.execute(f'INSERT INTO field_v2_laps (station_id,session_id,lap_id,pilot_id,track_config,raw_ms,{channel}_payload,review_json) VALUES (?,?,?,?,?,?,?,?)',
+                       key + (data['pilot_id'], data['track_config'], data['raw_ms'], payload, compact(reviews)))
+        elif not old:
+            db.execute(f'UPDATE field_v2_laps SET {channel}_payload=? WHERE station_id=? AND session_id=? AND lap_id=?', (payload,) + key)
+        if not old and not conflict:
+            db.execute('INSERT INTO field_v2_messages VALUES (?,?,?)', (station, data['message_id'], payload))
+        row = db.execute('SELECT * FROM field_v2_laps WHERE station_id=? AND session_id=? AND lap_id=?', key).fetchone()
+    if conflict:
+        # Raise only after commit: the rejected evidence remains available to administrators.
+        raise FieldError(409, conflict)
+    return dict(render(row), duplicate=old is not None)
+
+
+def review(store, data):
+    """Explicit administrator attestation of captured evidence, NOT official approval.
+
+    Does not claim a physical survey or auto-trust client flags. The operator must
+    inspect the exported evidence; audit history and the exact penalty hash persist.
+    """
+    if not store.penalties_v2_enabled:
+        raise FieldError(404, 'V2 ingestion is disabled')
+    for name in ('station_id', 'session_id', 'lap_id', 'reviewer'):
+        if not isinstance(data.get(name), str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,80}', data[name]):
+            raise FieldError(400, 'invalid ' + name)
+    if type(data.get('approved')) is not bool:
+        raise FieldError(400, 'approved must be boolean')
+    if not isinstance(data.get('reason'), str) or not 10 <= len(data['reason'].strip()) <= 1000:
+        raise FieldError(400, 'review reason required (10-1000 characters)')
+    key = tuple(data[k] for k in ('station_id', 'session_id', 'lap_id'))
+    with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        row = db.execute('SELECT * FROM field_v2_laps WHERE station_id=? AND session_id=? AND lap_id=?', key).fetchone()
+        if not row:
+            raise FieldError(404, 'field lap not found')
+        current = render(row)
+        if data['approved'] and (not current['penalty_received'] or current['conflicts']):
+            raise FieldError(409, 'penalty evidence required and conflicts must remain under review')
+        entry = dict(approved=data['approved'], reviewer=data['reviewer'], reason=data['reason'].strip(),
+                     created_utc=datetime.now(timezone.utc).isoformat(),
+                     penalty_sha256=hashlib.sha256((row['penalty_payload'] or '').encode('utf-8')).hexdigest(),
+                     kind='manual_field_attestation', official=False)
+        payload = compact(entry)
+        db.execute('INSERT INTO field_v2_reviews(station_id,session_id,lap_id,payload) VALUES(?,?,?,?)', key + (payload,))
+        db.execute('UPDATE field_v2_laps SET verification_json=? WHERE station_id=? AND session_id=? AND lap_id=?', (payload,) + key)
+        row = db.execute('SELECT * FROM field_v2_laps WHERE station_id=? AND session_id=? AND lap_id=?', key).fetchone()
+    return render(row)
+
+
+def review_history(store, station, session, lap):
+    with store.connect() as db:
+        rows = db.execute('SELECT id,payload FROM field_v2_reviews WHERE station_id=? AND session_id=? AND lap_id=? ORDER BY id',
+                          (station, session, lap)).fetchall()
+    return [dict(json.loads(row['payload']), id=row['id']) for row in rows]
+
+
+def list_laps(store, session=None):
+    with store.connect() as db:
+        rows = db.execute('SELECT * FROM field_v2_laps' + (' WHERE session_id=?' if session else '') +
+                          ' ORDER BY session_id,station_id,lap_id', (session,) if session else ()).fetchall()
+    return [render(row) for row in rows]

@@ -8,6 +8,7 @@ param(
     [string]$HostAddress = '127.0.0.1',
     [ValidateRange(1,65535)][int]$Port = 8080,
     [switch]$AllowLanBind,
+    [switch]$EnablePenaltiesV2,
     [string]$LogDirectory,
     [ValidateRange(1,1000)][int]$KeepLogs = 30,
     # Supervisor: Task Scheduler's RestartCount only covers launch failures, not a crashed exe, so restart here.
@@ -73,7 +74,10 @@ try {
         Write-Host "Starting $ServerExe on ${HostAddress}:$Port; logs: $outLog"
         $started = Get-Date
         # Start-Process redirection avoids PowerShell 5.1 turning native stderr into terminating errors.
-        $proc = Start-Process -FilePath $ServerExe -ArgumentList @('--db', "`"$DatabasePath`"", '--host', $HostAddress, '--port', $Port) `
+        $serverArguments = @('--db', "`"$DatabasePath`"", '--host', $HostAddress, '--port', $Port)
+        if ($EnablePenaltiesV2) { $serverArguments += '--enable-penalties-v2' }
+        if ($EnablePenaltiesV2) { $serverArguments += '--field-v2-only' }
+        $proc = Start-Process -FilePath $ServerExe -ArgumentList $serverArguments `
             -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outLog -RedirectStandardError $errLog
         if ($proc.ExitCode -eq 0) { break }
         # A server that stayed up 10 minutes was healthy: a later crash starts a fresh restart budget.

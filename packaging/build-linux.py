@@ -8,8 +8,8 @@ import re
 from zipfile import ZipFile, ZIP_DEFLATED
 
 ROOT = Path(__file__).resolve().parent.parent
-CLIENT = ('RiceTrials.lua', 'core.lua', 'scoring.lua', 'detectors.lua', 'journal.lua', 'hud.lua', 'penalties.lua', 'delta.lua', 'native_laps.lua', 'diagnostics.lua', 'manifest.ini')
-LEADERBOARD = ('admin.html', 'admin.js', 'tv.html', 'tv.js')
+CLIENT = ('RiceTrials.lua', 'core.lua', 'scoring.lua', 'detectors.lua', 'journal.lua', 'hud.lua', 'penalties.lua', 'delta.lua', 'native_laps.lua', 'field_v2.lua', 'diagnostics.lua', 'manifest.ini')
+LEADERBOARD = ('admin.html', 'admin.js', 'tv.html', 'tv.js', 'field-v2.html', 'field-v2.js')
 SAFE_SOURCE = {
     'client': {'.lua', '.ini'}, 'server': {'.py'}, 'leaderboard': {'.html', '.js', '.css'},
     'tests': {'.py'}, 'rules': {'.json'}, 'packaging': {'.py', '.ps1', '.yml'}, 'tools': {'.py'},

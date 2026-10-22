@@ -1,4 +1,5 @@
 -- CSP app. Local provisional timing only; server status remains PENDING_REVIEW.
+local fieldV2, initField, fieldToken, protocolV2 = nil, nil, nil, false -- opt-in independent V2 delivery
 local core = require('core')
 local calibration, route, previous, elapsed, started, crossings, lastResult
 local status = 'CALIBRATION_REQUIRED / UNVERIFIED CSP and Windows runtime'
@@ -23,7 +24,9 @@ do
   if okD and type(m) == 'table' then deltaMod = m; deltaD = m.new() end
 end
 local lastLap, bestLap = nil, nil   -- local results of this app run: {raw_ms, penalty_ms, corrected_ms, applied}
+local fieldSamples, fieldSampleClock, fieldTruncated = {}, 0.5, false
 local function coneReset()
+  fieldSamples, fieldSampleClock, fieldTruncated = {}, 0.5, false
   conePrev, coneIds, maxWheelsOut, autoCones = nil, {}, 0, 0
   offTimes, gateTimes = {}, {}
   if coneMachine then coneMachine:reset() end
@@ -123,6 +126,8 @@ local function autostart()
     -- Keep a more specific reason (QUEUE_CORRUPT, QUEUE_STATION_MISMATCH, STORAGE_*) visible.
     if status == before and not blocked then status = 'STATION_CONFIG_INVALID / NOT SCORED' end
     return end
+  protocolV2 = settings.protocol_v2 == true
+  if protocolV2 then initField(settings) end
   -- Route data is a separate operator-calibrated module, not a generated default.
   local calibrated, course = pcall(require, 'route_config')
   if calibrated and type(course) == 'table' then script.configure(course) end
@@ -147,6 +152,35 @@ function script.configureCones(cfg)
   end
   coneReset()
   return coneMachine ~= nil or limitsMachine ~= nil or slalomMachine ~= nil
+end
+local function fieldSnapshot()
+  local cfg = penaltyStore and penaltyStore.cfg or (penaltyMod and penaltyMod.defaults())
+  local settings = {}
+  if cfg then
+    settings={enable_cones=cfg.cone.on,enable_off_track=cfg.off_course.on,enable_slalom=cfg.slalom.on,
+      cone_penalty_ms=math.floor(cfg.cone.s*1000+0.5),
+      off_course_penalty_ms=math.floor(cfg.off_course.s*1000+0.5),
+      slalom_penalty_ms=math.floor(cfg.slalom.s*1000+0.5)}
+  end
+  local events, charged = {}, 0
+  for _,id in ipairs(coneIds or {}) do
+    local penalizable=autoPenalties and not coneExcluded[id] and charged<maxAutoCones
+    if penalizable then charged=charged+1 end
+    events[#events+1]={type='cone_contact',cone_id=id,penalizable=penalizable}
+  end
+  if autoPenalties then
+    for i,t in ipairs(offTimes) do
+      events[#events+1]={type='off_course',incident_id='off-'..i,penalizable=true,at_ms=math.floor(t*1000+0.5)}
+    end
+    local sl=slalomResult()
+    if sl then for _,id in ipairs(sl.violations) do
+      events[#events+1]={type='slalom_violation',incident_id='slalom-'..id,penalizable=true,gate_id=id}
+    end end
+  end
+  return {events=events,settings=settings,evidence={source='rice-client-v2',
+    detector_ok=false,calibration_verified=false,track_config=calibration and calibration.track_id,
+    detector=coneDetector() or {available=false},review_reasons={'physical_calibration_unverified'},
+    telemetry={samples=fieldSamples,truncated=fieldTruncated,interval_s=0.5}}}
 end
 local function validGate(g)
   if type(g) ~= 'table' or type(g.a) ~= 'table' or type(g.b) ~= 'table' or
@@ -261,6 +295,31 @@ local function decoded(err, response)
   local ok, body = pcall(JSON.parse, response.body)
   if ok and type(body) == 'table' then return body end
   return nil
+end
+initField = function(settings)
+  local ok, mod = pcall(require, 'field_v2')
+  if not ok then status='V2_MODULE_UNAVAILABLE / LOCAL BACKUP ONLY'; return end
+  local function context()
+    local track = settings.track_config or (calibration and calibration.track_id)
+    if ac and type(ac.getTrackID)=='function' then
+      local got, actual = pcall(ac.getTrackID)
+      if got and type(actual)=='string' and actual~='' then track=actual end
+    end
+    return {station_id=station,session_id=assignment and assignment.session_id,
+      pilot_id=assignment and assignment.pilot_id,track_config=track}
+  end
+  local created, producer=pcall(mod.new, {nonce=nonce,context=context,
+    encode=function(v) return JSON.stringify(v) end,decode=function(v) return JSON.parse(v) end,
+    journal=function(name) return journalModule.new({dir=journalDir(),name=name}, {
+      io=io,storage=ac and ac.storage,degraded_key='rice_trials_'..name,
+      legacy_key='unused_'..name,
+      json={encode=function(v) return JSON.stringify(v) end,decode=function(v) return JSON.parse(v) end}}) end,
+    post=function(channel,payload,cb)
+      local sent=pcall(web.post,endpoint..'/api/v2/'..(channel=='native' and 'native-laps' or 'penalty-laps'),
+        headers(),payload,function(err,response) cb(decoded(err,response)) end)
+      if not sent then cb(nil) end
+    end})
+  if created then fieldV2=producer else status='V2_STORAGE_UNAVAILABLE / LOCAL BACKUP ONLY' end
 end
 local function sendPending()
   if blocked or sending or not endpoint or not web or not web.post then return end
@@ -383,6 +442,8 @@ if ac and type(ac.onSessionStart) == 'function' then
   pcall(ac.onSessionStart, function()
     resetRoute('SESSION_START'); lastResetCounter = nil; script.refreshAssignment()
     if nativeLaps then pcall(nativeLaps.session_start, nativeLaps) end
+    if fieldV2 then pcall(fieldV2.session_start, fieldV2) end
+    fieldToken=nil
   end)
 end
 -- FFI cdata raises on fields its CSP version does not define: read optional fields safely.
@@ -414,9 +475,12 @@ function script.update(dt)
   if penaltyStore then pcall(penaltyStore.flush, penaltyStore, dt) end
   autostart()
   diagnose(dt)
-  if nativeLaps and ac and type(ac.getCar) == 'function' then
+  if (nativeLaps or fieldV2) and ac and type(ac.getCar) == 'function' then
     local okC, nativeCar = pcall(ac.getCar, 0)
-    if okC and nativeCar then pcall(nativeLaps.observe, nativeLaps, nativeCar, dt) end
+    if okC and nativeCar then
+      if nativeLaps then pcall(nativeLaps.observe, nativeLaps, nativeCar, dt) end
+      if fieldV2 then pcall(fieldV2.observe, fieldV2, nativeCar, dt); pcall(fieldV2.pump, fieldV2) end
+    end
   end
   if type(dt) ~= 'number' or dt <= 0 or dt > 1 then resetRoute(); return end
   retryClock, heartbeatClock, gameClock = retryClock + dt, heartbeatClock + dt, gameClock + dt
@@ -453,6 +517,16 @@ function script.update(dt)
     if len > 0.05 then lx, lz = mx/len, mz/len end
   end
   local pose = {x=current.x, z=current.z, lx=lx, lz=lz}
+  if fieldV2 and wasTimed then
+    fieldSampleClock=fieldSampleClock+dt
+    if fieldSampleClock>=0.5 then
+      fieldSampleClock=0
+      if #fieldSamples<250 then
+        fieldSamples[#fieldSamples+1]={t_ms=math.floor((elapsed-started)*1000+0.5),
+          x=current.x,z=current.z,lx=lx,lz=lz}
+      else fieldTruncated=true end
+    end
+  end
   local transition, fraction = route:observe(previous, current)
   if coneMachine or limitsMachine or slalomMachine then
     if wasTimed then
@@ -502,6 +576,7 @@ function script.update(dt)
       resetRoute(); previous = current; status = 'ASSIGNMENT_UNAVAILABLE / NOT SCORED'; return end
     frozen = {station_id=station, session_id=assignment.session_id, pilot_id=assignment.pilot_id,
       assignment_revision=assignment.assignment_revision}
+    if fieldV2 then fieldToken=fieldV2:begin_lap() end
     started = crossedAt; coneReset(); status = 'OUTLAP COMPLETE / ASSIGNMENT FROZEN'
     if deltaD then pcall(deltaD.begin, deltaD, field(car, 'splinePosition')) end
   elseif transition == 'CHECKPOINT' then status = 'ROUTE CHECKPOINT / NOT SCORED'
@@ -533,12 +608,16 @@ function script.update(dt)
         serialized:sub(-1) == '}' then
       serialized = serialized:sub(1,-2)..',"events":'..eventsJson()..'}'
     else serialized = nil end
-    if not ok or type(serialized) ~= 'string' or not queue:add(id, serialized) then
-      fail('QUEUE_UNAVAILABLE / NOT SENT'); return end
-    nextId = nextId + 1
+    if protocolV2 then
+      if fieldV2 then pcall(fieldV2.finish_lap,fieldV2,fieldToken,raw,fieldSnapshot()) end
+    else
+      if not ok or type(serialized) ~= 'string' or not queue:add(id, serialized) then
+        fail('QUEUE_UNAVAILABLE / NOT SENT'); return end
+      nextId = nextId + 1
+      lapNumbers[frozen.session_id] = lapNumber
+      if not persist() then return end
+    end
     coneReset()
-    lapNumbers[frozen.session_id] = lapNumber
-    if not persist() then return end
     crossings = crossings + 1
     lastResult = {raw_seconds=raw/1000}
     do -- what the driver sees: raw + station penalties = final time (not an official result)
@@ -548,7 +627,11 @@ function script.update(dt)
       if not bestLap or lastLap.corrected_ms < bestLap.corrected_ms then bestLap = lastLap end
       if deltaD then pcall(deltaD.finish, deltaD, lastLap.corrected_ms) end
     end
-    if nativeLaps then pcall(nativeLaps.note_route_lap, nativeLaps, id, raw) end
+    if nativeLaps and not protocolV2 then pcall(nativeLaps.note_route_lap, nativeLaps, id, raw) end
+    if fieldV2 then
+      pcall(fieldV2.pump,fieldV2)
+      fieldToken=fieldV2:begin_lap(fieldToken)
+    end
     status = 'PENDING_REVIEW / LOCALLY STORED / NOT SCORED'
     sendPending()
     started = crossedAt
@@ -559,6 +642,10 @@ function script.update(dt)
   end
   previous = current
 end
+function script.exportFieldEvidence()
+  return fieldV2 and fieldV2:export() or nil
+end
+function script.fieldStatus() return fieldV2 and fieldV2:stats() or nil end
 local function drawNativeLaps()
   if nativeLaps then
     local st = nativeLaps:stats()

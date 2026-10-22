@@ -123,6 +123,12 @@ jobs:
           }
           & $server --db $db --check
           if ($LASTEXITCODE -ne 0) { throw "--check failed ($LASTEXITCODE)" }
+      - name: V2 OR protocol against packaged Windows executable (provisional only)
+        shell: pwsh
+        run: |
+          $server = Join-Path $env:RUNNER_TEMP 'rice-server/RiceTrialsServer/RiceTrialsServer.exe'
+          python tools/field_smoke.py --server-exe $server --output (Join-Path $env:RUNNER_TEMP 'e2e-evidence/field-v2.json')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: E2E on real Windows (installer, ACL, DPAPI, server-admin, scheduled task; AC root is a fixture)
         shell: powershell
         run: |

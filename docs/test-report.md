@@ -1,6 +1,16 @@
 # Informe de pruebas (Linux)
 
-Fecha de la última corrida: 2026-10-20.
+Fecha de la última corrida V2 de campo: 2026-10-21.
+
+## V2 de campo
+
+Última ejecución Linux: 149 tests de servidor, integración, navegador y empaquetado (OK; 4 omitidos por prerrequisitos opcionales), 121 tests de cliente Lua (OK) y 25 escenarios MOCK (24 OK; 1 omitido por falta de geometría local).
+
+El smoke OR usa procesos y HTTP reales: autenticación, ambos órdenes de llegada, duplicados, conflicto, reinicio, persistencia y exclusión del ranking oficial. Chromium prueba el monitor V2, su auto-refresco, export y revisión administrativa. La evidencia Windows se genera en el workflow del paquete, incluyendo este mismo smoke contra el exe compilado.
+
+`Dummy.kn5` está validado en juego por confirmación del usuario. Estas suites no implican validación en juego del protocolo V2 completo.
+
+El resto de este informe conserva el detalle y los resultados históricos de V1.
 
 ## Cómo correrlas
 
@@ -44,4 +54,4 @@ El cliente de producción corre sin cambios sobre una simulación de la superfic
 
 ## No ejecutado
 
-Assetto Corsa y CSP en Windows (las APIs `io`, `web` y `ac.*` sólo se probaron con dobles), el parche de `Dummy.kn5` dentro del juego, detección física de conos y bordes, cronometraje real, comportamiento de `io.save` en Windows y ante cortes de energía, tarea programada tras un reinicio real, varias estaciones en red y un evento completo. Las pruebas de Linux verifican contratos y comportamiento emulado; no certifican nada deportivo. El sistema sigue bloqueado para trials oficiales.
+V2 completa dentro de Assetto Corsa/CSP en Windows, detección física de conos y bordes, cronometraje real, comportamiento de `io.save` ante cortes de energía, tarea programada tras un reinicio real, varias estaciones en red y un evento completo. El parche `Dummy.kn5` sí fue validado en juego por el usuario. Las pruebas de Linux verifican contratos y comportamiento emulado; no certifican nada deportivo. Esto no bloquea la pre-release para pruebas de campo; los resultados provisionales siguen fuera del ranking oficial.

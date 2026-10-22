@@ -13,7 +13,7 @@ def config():
             'outer': [[-100, -10], [100, -10], [100, 10], [-100, 10]],
             'inner': [],
         },
-        'route': {'closed': False, 'direction': 1, 'points': [[0, 0], [100, 0]]},
+        'route': {'calibrated': True, 'closed': False, 'direction': 1, 'points': [[0, 0], [100, 0]]},
         'vehicle': {
             'length_m': 2.0,
             'width_m': 1.0,
@@ -118,7 +118,7 @@ class OffTrackTests(unittest.TestCase):
         cfg = config()
         cfg['cones']['items'] = []
         cfg['boundaries']['outer'] = [[-1, -1], [11, -1], [11, 11], [-1, 11]]
-        cfg['route'] = {'closed': True, 'direction': 1, 'points': [[0, 0], [10, 0], [10, 10], [0, 10]]}
+        cfg['route'] = {'calibrated': True, 'closed': True, 'direction': 1, 'points': [[0, 0], [10, 0], [10, 10], [0, 10]]}
         samples = [sample(0, 0, 1), sample(100, -3, 0), sample(250, -4, 0), sample(400, 3, 0), sample(500, 4, 0)]
         result = penalties_v2.analyze_trajectory(
             trajectory(samples), cfg, {'off_track_hold_ms': 100, 'max_gap_ms': 500, 'progress_epsilon_m': 0.1})

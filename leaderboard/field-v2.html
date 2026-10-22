@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rice Racing · V2 field testing</title><link rel="stylesheet" href="/admin.css"></head>
+<body>
+<header class="top"><h1>Rice Racing · V2 field testing</h1><a href="/admin">Administración V1</a></header>
+<div class="banner">PROVISIONAL · Pruebas de campo. Sin ranking ni scoring oficial.</div>
+<main style="padding: 12px 20px">
+<form id="auth" class="row"><label>Token admin <input id="field-token" type="password" autocomplete="off" required></label>
+<button type="submit">Consultar</button><button type="button" id="clear" class="secondary">Salir y borrar</button></form>
+<p class="hint" style="margin: 8px 0">El token se conserva sólo en memoria hasta cerrar esta página o salir. Actualización automática cada 3 segundos. VERIFIED_PROVISIONAL indica revisión manual, nunca clasificación oficial.</p>
+<p id="field-message" role="status" aria-live="polite">Ingresá el token de la instancia de pruebas.</p>
+<div class="row"><button type="button" id="refresh">Actualizar</button><button type="button" id="export">Exportar JSON con evidencia</button></div>
+<p>PENALTIES_PENDING: falta el canal penalizado. No significa cero penalizaciones. Los tiempos calculados siguen siendo provisionales y pueden requerir revisión.</p>
+<div style="overflow-x:auto"><table class="data"><thead><tr><th>Estación</th><th>Sesión</th><th>Piloto</th><th>Circuito</th><th>Vuelta</th><th>Estado</th><th>Bruto (ms)</th><th>Previsualización (ms)</th><th>Revisión / evidencia</th></tr></thead><tbody id="field-laps"></tbody></table></div>
+</main><script src="/field-v2.js"></script>
+</body></html>

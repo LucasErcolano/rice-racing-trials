@@ -15,11 +15,18 @@ except ImportError:  # imported by server/app.py as a standalone module
 
 PROTOCOL = 'rice-trajectory-v2'
 CONFIG_SCHEMA = 'rice-penalties-v2'
-DETECTOR_VERSION = 1
+DETECTOR_VERSION = 2
+# Conservative primitive-geometry work estimate; never client-configurable.
+# Over-budget trajectories must be retained/deferred by the endpoint, not scored.
+MAX_ANALYSIS_WORK = 1_000_000
 
 
 class TrajectoryError(ValueError):
     """Invalid or unsafe V2 trajectory/configuration input."""
+
+
+class AnalysisLimitError(TrajectoryError):
+    """Geometry exceeds the synchronous work budget; retain/defer the evidence."""
 
 
 def _finite(value, name):
@@ -206,6 +213,46 @@ def _settings(overrides):
     return values
 
 
+def _check_analysis_work(trace, samples, config, settings):
+    """Reject unsafe work BEFORE any detector runs; never return partial totals.
+
+    This is a deterministic complexity bound, not a wall-clock guarantee or a
+    substitute for a bounded process worker/admission queue in the HTTP server.
+    Penalty toggles do not reduce this estimate: disabled penalties keep evidence.
+    """
+    def size(section, key, maximum):
+        value = section.get(key, []) if isinstance(section, dict) else []
+        if not isinstance(value, list) or len(value) > maximum:
+            raise TrajectoryError('invalid or oversized ' + key)
+        return len(value)
+
+    cones = size(config.get('cones'), 'items', 5000)
+    route = size(config.get('route'), 'points', 20000)
+    boundaries = config.get('boundaries')
+    edges = size(boundaries, 'outer', 50000) + size(boundaries, 'inner', 50000)
+    slaloms = config.get('slaloms')
+    size(slaloms, 'sections', 100)
+    sections = slaloms.get('sections', []) if isinstance(slaloms, dict) else []
+    gates = sum(size(section, 'gates', 64) for section in sections)
+    contacts = size(trace, 'contact_events', 5000)
+    # Upper bound on the existing direct-event merge and incident de-duplication.
+    work = contacts * (contacts + cones) + len(samples) * (route + gates)
+    work += len(sections) * len(samples)
+    for left, right in zip(samples, samples[1:]):
+        dt = right['t_ms'] - left['t_ms']
+        if (dt > settings['max_gap_ms'] or math.dist(left['position'], right['position']) >
+                settings['max_speed_mps'] * dt / 1000 + settings['teleport_slack_m']):
+            continue
+        steps = _segments(left, right, settings) + 1
+        # Four box edges per cone; four wheels with conservative polygon passes.
+        # Include interpolation/heading/polygon construction even with no geometry.
+        work += steps * (4 * cones + 16 * edges + route + 64)
+        if work > MAX_ANALYSIS_WORK:
+            raise AnalysisLimitError('analysis work budget exceeded; defer for manual review')
+    if work > MAX_ANALYSIS_WORK:
+        raise AnalysisLimitError('analysis work budget exceeded; defer for manual review')
+
+
 def _detect_cones(samples, vehicle, config, settings, lap_id, events, review):
     cones = config.get('cones')
     if not isinstance(cones, dict):
@@ -214,10 +261,17 @@ def _detect_cones(samples, vehicle, config, settings, lap_id, events, review):
     items = cones.get('items', [])
     if not isinstance(items, list) or len(items) > 5000:
         raise TrajectoryError('invalid cone geometry')
-    if not cones.get('calibrated'):
-        if items:
-            review.append('cone_geometry_uncalibrated')
+    if cones.get('calibrated') is not True:
+        review.append('cone_geometry_uncalibrated')
         return
+    shrink = _finite(cones.get('shrink_m', 0.15), 'cones.shrink_m')
+    min_depth = _finite(cones.get('min_depth_m', 0.03), 'cones.min_depth_m')
+    if not 0 <= shrink < min(vehicle['length_m'], vehicle['width_m']) / 2 or not 0 <= min_depth <= 1:
+        raise TrajectoryError('invalid cone contact thresholds')
+    # V1 uses the calibrated collider BOX, shrunk per side, not an arbitrary
+    # vehicle collision polygon. Physical knockdown is not required.
+    contact_vehicle = {'length_m': vehicle['length_m'] - 2 * shrink,
+                       'width_m': vehicle['width_m'] - 2 * shrink}
     parsed_cones = []
     seen_ids = set()
     for cone in items:
@@ -249,11 +303,12 @@ def _detect_cones(samples, vehicle, config, settings, lap_id, events, review):
         count = _segments(left, right, settings)
         for step in range(count + 1):
             current = _interpolated(left, right, step / count)
-            polygon = _vehicle_polygon(current, vehicle)
+            polygon = _vehicle_polygon(current, contact_vehicle)
             for cone_id, point, radius in parsed_cones:
                 if cone_id in touched:
                     continue
-                if _point_polygon_distance(point, polygon) <= radius + settings['cone_tolerance_m']:
+                penetration = radius - _point_polygon_distance(point, polygon)
+                if penetration + settings['cone_tolerance_m'] >= min_depth:
                     touched.add(cone_id)
                     events.append({
                         'type': 'cone_contact', 'cone_id': cone_id, 'lap_id': lap_id,
@@ -262,7 +317,9 @@ def _detect_cones(samples, vehicle, config, settings, lap_id, events, review):
                         'penalty_ms': settings['cone_penalty_ms'] if settings['enable_cones'] else 0,
                         'evidence': {'method': 'swept_vehicle_polygon_vs_calibrated_circle',
                                      'sample_interval_ms': [left['t_ms'], right['t_ms']],
-                                     'cone_radius_m': radius, 'vehicle_polygon_world': polygon},
+                                     'cone_radius_m': radius, 'vehicle_polygon_world': polygon,
+                                     'shrink_m': shrink, 'min_depth_m': min_depth,
+                                     'penetration_m': penetration},
                     })
 
 
@@ -274,7 +331,7 @@ def _detect_direct_cone_contacts(trace, config, settings, lap_id, samples, event
     if not contacts:
         return
     cones = config.get('cones')
-    if not isinstance(cones, dict) or not cones.get('calibrated'):
+    if not isinstance(cones, dict) or cones.get('calibrated') is not True:
         review.append('direct_cone_contact_without_calibrated_geometry')
         return
     calibrated_ids = {item.get('id') for item in cones.get('items', [])
@@ -306,9 +363,37 @@ def _detect_direct_cone_contacts(trace, config, settings, lap_id, samples, event
                                     'calibrated_cone_id': cone_id}})
 
 
+def _apply_cone_exclusions(config, events, review):
+    cones = config.get('cones')
+    if not isinstance(cones, dict):
+        return
+    reference = cones.get('ref_line_cones', [])
+    if (not isinstance(reference, list) or len(reference) > 5000 or
+            any(not isinstance(value, str) for value in reference)):
+        raise TrajectoryError('invalid cones.ref_line_cones')
+    reference = set(reference)
+    for event in events:
+        if event['type'] == 'cone_contact' and event['cone_id'] in reference:
+            event['penalizable'] = False
+            event['penalty_ms'] = 0
+            event['evidence']['exclusion'] = 'reference_line_cone'
+    cap = cones.get('max_auto_cones', 25)
+    if type(cap) is not int or not 0 <= cap <= 5000:
+        raise TrajectoryError('invalid cones.max_auto_cones')
+    eligible = sorted((e for e in events if e['type'] == 'cone_contact' and
+                       e['cone_id'] not in reference),
+                      key=lambda e: (e['timestamp_ms'], e['cone_id']))
+    if len(eligible) > cap:
+        review.append('cone_auto_cap_exceeded')
+    for event in eligible[cap:]:
+        event['penalizable'] = False
+        event['penalty_ms'] = 0
+        event['evidence']['exclusion'] = 'automatic_cone_cap'
+
+
 def _route_data(config):
     route = config.get('route')
-    if not isinstance(route, dict):
+    if not isinstance(route, dict) or route.get('calibrated') is not True:
         return None
     points = route.get('points')
     if not isinstance(points, list) or len(points) < 2 or len(points) > 20000:
@@ -404,7 +489,7 @@ def _outside_track(sample, vehicle, outer, inner, tolerance):
 
 def _detect_off_track(samples, vehicle, config, settings, lap_id, events, review):
     boundaries = config.get('boundaries')
-    if not isinstance(boundaries, dict) or not boundaries.get('calibrated'):
+    if not isinstance(boundaries, dict) or boundaries.get('calibrated') is not True:
         review.append('track_boundaries_uncalibrated')
         return
     outer = _polygon(boundaries.get('outer'), 'boundaries.outer')
@@ -414,7 +499,9 @@ def _detect_off_track(samples, vehicle, config, settings, lap_id, events, review
         return
     route = _route_data(config)
     if route is None:
-        review.append('route_geometry_missing')
+        route_config = config.get('route')
+        review.append('route_geometry_uncalibrated' if isinstance(route_config, dict) and
+                      route_config.get('calibrated') is not True else 'route_geometry_missing')
         return
     hold_ms, epsilon = settings['off_track_hold_ms'], settings['progress_epsilon_m']
     candidate = active = None
@@ -569,13 +656,14 @@ def _detect_slaloms(samples, config, settings, lap_id, events, review):
     sections = slaloms.get('sections', [])
     if not isinstance(sections, list) or len(sections) > 100:
         raise TrajectoryError('invalid slalom sections')
-    if not slaloms.get('calibrated'):
-        if sections:
-            review.append('slalom_geometry_uncalibrated')
+    if slaloms.get('calibrated') is not True:
+        review.append('slalom_geometry_uncalibrated')
         return
     route = _route_data(config)
     if route is None:
-        review.append('route_geometry_missing')
+        route_config = config.get('route')
+        review.append('route_geometry_uncalibrated' if isinstance(route_config, dict) and
+                      route_config.get('calibrated') is not True else 'route_geometry_missing')
         return
     progress_frames = _trajectory_progress(samples, route, settings, review)
     # Candidate crossings are computed once per adjacent telemetry pair and
@@ -730,9 +818,11 @@ def analyze_trajectory(trace, config, settings=None):
     """Analyze one lap and return deterministic events and integer-millisecond totals."""
     identity, raw_ms, samples, vehicle = _validate(trace, config)
     cfg = _settings(settings)
+    _check_analysis_work(trace, samples, config, cfg)
     events, review = [], []
     _detect_cones(samples, vehicle, config, cfg, identity['lap_id'], events, review)
     _detect_direct_cone_contacts(trace, config, cfg, identity['lap_id'], samples, events, review)
+    _apply_cone_exclusions(config, events, review)
     _detect_off_track(samples, vehicle, config, cfg, identity['lap_id'], events, review)
     _detect_slaloms(samples, config, cfg, identity['lap_id'], events, review)
     _deduplicate_incidents(events)

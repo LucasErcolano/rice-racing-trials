@@ -33,6 +33,7 @@ param(
     [string]$RouteConfig,
     [string]$ConeConfig,
     [switch]$EnableDiagnostics,
+    [switch]$ProtocolV2,
     [string]$Rollback,
     [string]$ReportPath
 )
@@ -320,6 +321,7 @@ try {
         $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
         if (-not $plain) { throw 'Station token cannot be empty' }
         $extra = if ($EnableDiagnostics) { ', diagnostics=true' } else { '' }
+        $extra += if ($ProtocolV2) { ', protocol_v2=true' } else { '' }
         $config = 'return {server_url=' + (ConvertTo-LuaByteString $ServerUrl) +
                   ', station_id=' + (ConvertTo-LuaByteString $StationId) +
                   ', station_token=' + (ConvertTo-LuaByteString $plain) + $extra + "}`n"
