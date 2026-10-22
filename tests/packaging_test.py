@@ -90,7 +90,7 @@ class BuildTests(unittest.TestCase):
             for directory in ('client', 'server', 'leaderboard', 'tests', 'packaging', 'tools', 'docs', 'assets/source'):
                 (root / directory).mkdir(parents=True)
             for filename, contents in {
-                'client/RiceTrials.lua': 'app', 'client/core.lua': 'core', 'client/scoring.lua': 'scoring', 'client/detectors.lua': 'detectors', 'client/journal.lua': 'journal', 'client/hud.lua': 'hud', 'client/delta.lua': 'delta', 'client/penalties.lua': 'penalties', 'client/native_laps.lua': 'native_laps', 'client/field_v2.lua': 'field_v2', 'client/diagnostics.lua': 'diagnostics', 'server/scoring.py': 'scoring', 'rules/scoring-v1.json': '{}', 'client/extra.lua': 'extra',
+                'client/RiceTrials.lua': 'app', 'client/core.lua': 'core', 'client/scoring.lua': 'scoring', 'client/detectors.lua': 'detectors', 'client/journal.lua': 'journal', 'client/hud.lua': 'hud', 'client/delta.lua': 'delta', 'client/native_overlay.lua': 'native_overlay', 'client/native_render.lua': 'native_render', 'client/penalties.lua': 'penalties', 'client/native_laps.lua': 'native_laps', 'client/field_v2.lua': 'field_v2', 'client/diagnostics.lua': 'diagnostics', 'server/scoring.py': 'scoring', 'rules/scoring-v1.json': '{}', 'client/extra.lua': 'extra',
                 'client/manifest.ini': 'ini', 'client/station_config.lua': 'LOCAL_SECRET_DO_NOT_SHIP', 'server/app.py': 'app', 'server/service.py': 'module',
                 'leaderboard/tv.html': 'tv', 'leaderboard/tv.js': 'js', 'leaderboard/admin.html': 'admin', 'leaderboard/admin.js': 'js', 'leaderboard/field-v2.html': 'field', 'leaderboard/field-v2.js': 'fieldjs', 'leaderboard/field-v2.css': 'fieldcss',
                 'packaging/install.ps1': 'install', 'packaging/uninstall.ps1': 'uninstall',
@@ -115,6 +115,8 @@ class BuildTests(unittest.TestCase):
             with ZipFile(output / 'RiceRacing_Trials_Client.zip') as archive:
                 self.assertIn('track-config/T.route_config.lua', archive.namelist())
                 self.assertIn('RiceTrials/extra.lua', archive.namelist())
+                self.assertIn('RiceTrials/native_overlay.lua', archive.namelist())
+                self.assertIn('RiceTrials/native_render.lua', archive.namelist())
                 self.assertNotIn('RiceTrials/station_config.lua', archive.namelist())
                 self.assertIn('tools/validation.py', archive.namelist())
             with ZipFile(output / 'RiceRacing_Trials_Server.zip') as archive:

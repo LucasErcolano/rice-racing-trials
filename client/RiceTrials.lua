@@ -102,10 +102,17 @@ end
 -- and never blocks timing or the queue.
 local okHud, hud = pcall(require, 'hud')
 if not okHud or type(hud) ~= 'table' then hud = nil end
+-- Native-style overlays (AC look) are optional in the same way: a failure here
+-- leaves the existing windows untouched, never the timing.
+local okOverlay, nativeOverlay = pcall(require, 'native_overlay')
+if not okOverlay or type(nativeOverlay) ~= 'table' then nativeOverlay = nil end
+local okRender, nativeRender = pcall(require, 'native_render')
+if not okRender or type(nativeRender) ~= 'table' then nativeRender = nil end
 local okDiag, diagnosticsModule = pcall(require, 'diagnostics')
 if not okDiag or type(diagnosticsModule) ~= 'table' then diagnosticsModule = nil end
 local hudCache = hud and hud.cache(0.25) or nil
 local hudConfig, diag = {}, nil
+local overlayConfig = {}
 local online, lastAck = nil, nil
 local function autostart()
   if bootAttempted then return end
@@ -117,6 +124,10 @@ local function autostart()
     status = 'STATION_CONFIG_MISSING / NOT SCORED'; return end
   for _, key in ipairs({'hud_scale', 'hud_x', 'hud_y', 'hud_max_errors', 'hud_font'}) do
     hudConfig[key] = settings[key]
+  end
+  -- Overlay geometry: its own keys so the classic HUD layout is untouched.
+  for _, key in ipairs({'overlay_scale', 'overlay_x', 'overlay_y', 'overlay_alpha', 'overlay_enabled'}) do
+    overlayConfig[key] = settings[key]
   end
   if diagnosticsModule and settings.diagnostics == true then
     local okNew, created = pcall(diagnosticsModule.new, settings)
@@ -782,4 +793,80 @@ function script.windowPenalties(dt)
   end
   ui.text('Panel de penalizaciones no disponible')
   pcall(drawNativeLaps)
+end
+-- Native-style timing overlay: shows ONLY values the client already computed
+-- (liveLap/lastLap/bestLap/deltaD), so it can never disagree with the scoring
+-- path. The penalty line stays separate: a detected penalty is visible without
+-- being hidden inside the lap time, and a detector with no evidence is shown as
+-- "sin evidencia" instead of 0.
+local function overlayState()
+  local live = started and route and route.phase == 'timed' and liveLap() or nil
+  -- penaltyOutcome() returns {penalty_ms, applied, deduped} (penalties.apply);
+  -- "no evidence" is the nil case, and it must never be shown as 0.
+  local outcome = penaltyOutcome()
+  local lapNumber = frozen and frozen.session_id and (lapNumbers[frozen.session_id] or 0) + 1 or nil
+  local hasRef = deltaD and deltaD:has_reference() == true
+  return {
+    phase = route and route.phase or nil,
+    lap_number = lapNumber,
+    current_ms = live and live.elapsed_ms or nil,
+    last_ms = lastLap and lastLap.corrected_ms or nil,
+    best_ms = bestLap and bestLap.corrected_ms or nil,
+    -- Penalty total of the lap in progress, only when evidence exists.
+    penalty_ms = outcome and outcome.penalty_ms or nil,
+    penalty_pending = (outcome == nil) or nil,
+    has_reference = hasRef,
+    delta_ms = hasRef and liveDelta or nil,
+    -- No reference yet, or the sample is missing: show "--", never a fake 0.
+    delta_pending = hasRef and (liveDelta == nil) or nil,
+  }
+end
+-- Cached like the HUD: the per-frame window callback only builds/draws models.
+local function overlayCache()
+  local c = {clock = 0, timing = nil, delta = nil}
+  local INTERVAL = 0.2
+  function c:update(dt)
+    self.clock = self.clock + (type(dt) == 'number' and dt > 0 and dt or 0)
+    if self.clock >= INTERVAL or not self.timing then
+      self.clock = 0
+      local okState, st = pcall(overlayState)
+      if okState and type(st) == 'table' then
+        local okT, tm = pcall(nativeOverlay.timing, st, overlayConfig)
+        local okD, dm = pcall(nativeOverlay.delta, st.delta_ms, {has_reference = st.has_reference,
+          pending = st.delta_pending}, overlayConfig)
+        self.timing = okT and type(tm) == 'table' and tm or nil
+        self.delta = okD and type(dm) == 'table' and dm or nil
+      end
+    end
+    return self.timing, self.delta
+  end
+  return c
+end
+local overlayCacheInstance = (nativeOverlay and nativeRender) and overlayCache() or nil
+-- Guarded text fallback: the window must never raise, whatever ui exposes.
+local function overlayText(u, text)
+  if type(u) ~= 'table' then return end
+  if type(u.text) == 'function' then pcall(u.text, text) end
+end
+function script.windowNative(dt)
+  if not overlayCacheInstance then overlayText(ui, 'Overlay nativo no disponible'); return end
+  local okU, timing, delta = pcall(overlayCacheInstance.update, overlayCacheInstance, dt)
+  if not okU or not timing then overlayText(ui, 'Overlay nativo no disponible'); return end
+  local okT = pcall(nativeRender.draw, timing, overlayConfig)
+  -- Stack the delta panel under the timing panel instead of drawing over it.
+  if type(delta) == 'table' and type(timing.layout) == 'table' and type(nativeRender.height) == 'function' then
+    local okH, h = pcall(nativeRender.height, timing)
+    if okH and type(h) == 'number' then
+      local lay = {}
+      for k, v in pairs(timing.layout) do lay[k] = v end
+      lay.y = (lay.y or 0) + h + 4
+      delta.layout = lay
+    end
+  end
+  local okD = pcall(nativeRender.draw, delta, overlayConfig)
+  if not (okT or okD) then overlayText(ui, 'Overlay nativo no disponible') end
+end
+function script.overlayEnabled()
+  if overlayConfig.overlay_enabled == false then return false end
+  return nativeOverlay ~= nil and nativeRender ~= nil
 end
