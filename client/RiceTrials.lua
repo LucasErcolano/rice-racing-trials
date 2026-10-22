@@ -457,9 +457,17 @@ local function simGate()
   if field(sim, 'isInMainMenu') == true then return 'MAIN_MENU' end
   return nil
 end
+-- CSP 0.2.11 exposes ac.getCar as a callable that is not a plain Lua function, so never
+-- gate on type(ac.getCar)=='function': call it protected and accept whatever it returns.
+local function getCar0()
+  if not ac or ac.getCar == nil then return nil end
+  local ok, car = pcall(ac.getCar, 0)
+  if ok then return car end
+  return nil
+end
 local function diagnose(dt)
   if not diag then return end
-  local car = ac and type(ac.getCar) == 'function' and ac.getCar(0) or nil
+  local car = getCar0()
   local sim = ac and type(ac.getSim) == 'function' and ac.getSim() or nil
   pcall(diag.update, diag, dt, car, sim, {
     detector={phase=route and route.phase or nil, status=status, crossings=crossings},
@@ -472,10 +480,7 @@ function script.update(dt)
   local gate = simGate() -- independent of route/calibration availability
   local replay = gate == 'REPLAY'
   local nativeCar
-  if (nativeLaps or fieldV2) and ac and type(ac.getCar) == 'function' then
-    local okC, car = pcall(ac.getCar, 0)
-    if okC then nativeCar=car end
-  end
+  if nativeLaps or fieldV2 then nativeCar = getCar0() end
   if nativeLaps then
     if replay and not nativeReplay then pcall(nativeLaps.session_start, nativeLaps) end
     if not replay and nativeCar then pcall(nativeLaps.observe, nativeLaps, nativeCar, dt) end
