@@ -29,6 +29,7 @@ class FieldBrowserTests(api.FieldV2HttpTests):
                 page.locator('#field-token').fill('admin')
                 page.locator('#auth button[type=submit]').click()
                 expect(page.locator('#field-laps')).to_contain_text('PENALTIES_PENDING')
+                expect(page.locator('#field-laps')).to_contain_text('Pendientes (sin evidencia)')
                 expect(page.locator('#field-laps td').first).to_have_css('font-size', '22px')
                 self.assertEqual(page.request.get(f'http://127.0.0.1:{self.http.server_port}/field-v2.css').status, 200)
                 expect(page.locator('#field-laps')).to_contain_text('sin evidencia')

@@ -28,7 +28,8 @@ class FieldError(Exception):
 EXPORT_COLUMNS = ['station_id', 'session_id', 'lap_id', 'pilot_id', 'track_config', 'raw_ms',
                   'status', 'native_received', 'penalty_received', 'penalty_ms', 'corrected_preview_ms',
                   'corrected_ms', 'final_ms', 'official', 'evidence_verified', 'review_reasons',
-                  'preview_ms', 'evidence', 'native_payload', 'penalty_payload', 'conflicts', 'verification']
+                  'preview_ms', 'penalty_evidence_state', 'disabled_penalties',
+                  'evidence', 'native_payload', 'penalty_payload', 'conflicts', 'verification']
 
 
 def compact(value):
@@ -139,7 +140,32 @@ def render(row):
         item['status'] = 'VERIFIED_PROVISIONAL'
     item['preview_ms'] = item['corrected_preview_ms']
     item['evidence'] = item['penalty_payload']['evidence'] if item['penalty_received'] else None
+    item['disabled_penalties'], item['penalty_evidence_state'] = evidence_state(item)
     return item
+
+
+DISABLE_FLAGS = (('enable_cones', 'cones', 'cone_contact'), ('enable_off_track', 'off_track', 'off_course'),
+                 ('enable_slalom', 'slalom', 'slalom_violation'))
+
+
+def evidence_state(item):
+    """Never let absent or incomplete evidence read as zero penalties."""
+    if item['conflicts']:
+        settings = (item['penalty_payload'] or {}).get('settings') or {}
+        return [name for key, name, _ in DISABLE_FLAGS if settings.get(key) is False], 'CONFLICT'
+    if not item['penalty_received']:
+        return [], 'ABSENT'
+    penalty = item['penalty_payload']
+    settings = penalty.get('settings') or {}
+    disabled = [name for key, name, _ in DISABLE_FLAGS if settings.get(key) is False]
+    if item['corrected_preview_ms'] is None or evidence_reasons(penalty):
+        return disabled, 'INCOMPLETE'
+    if item['penalty_ms']:
+        return disabled, 'PENALIZED'
+    kinds = {event.get('type') for event in penalty.get('events') or [] if event.get('penalizable') is True}
+    if any(kind in kinds for key, _, kind in DISABLE_FLAGS if settings.get(key) is False):
+        return disabled, 'PENALTIES_DISABLED'
+    return disabled, 'ZERO_INCIDENTS'
 
 
 def receive(store, data, station, channel):

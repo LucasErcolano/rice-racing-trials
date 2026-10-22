@@ -8,13 +8,22 @@
   const message = text => { byId('field-message').textContent = text; };
   const value = item => item === null || item === undefined ? 'sin evidencia' :
     (typeof item === 'object' ? JSON.stringify(item) : String(item));
+  const STATES = {ABSENT: 'Pendientes (sin evidencia)', INCOMPLETE: 'Evidencia incompleta',
+    ZERO_INCIDENTS: 'Cero incidentes', PENALIZED: 'Penalizada', PENALTIES_DISABLED: 'Deshabilitadas',
+    CONFLICT: 'Conflicto: revisión'};
+  function penaltyState(lap) {
+    const label = STATES[lap.penalty_evidence_state] || 'Desconocido';
+    const off = Array.isArray(lap.disabled_penalties) && lap.disabled_penalties.length ?
+      ' · off: ' + lap.disabled_penalties.join(',') : '';
+    return label + off;
+  }
   function render() {
     const body = byId('field-laps');
     body.replaceChildren();
     for (const lap of rows) {
       const tr = document.createElement('tr');
       const cells = [lap.station_id, lap.session_id, lap.pilot_id, lap.track_config, lap.lap_id,
-        lap.status, lap.raw_ms, lap.preview_ms, lap.review_reasons];
+        lap.status, penaltyState(lap), lap.raw_ms, lap.preview_ms, lap.review_reasons];
       for (const item of cells) {
         const td = document.createElement('td');
         td.textContent = value(item);
