@@ -1,6 +1,17 @@
-# Independent clean-lap offline engineering tool
+# Independent clean-lap engineering tool
 
-**Not an Assetto Corsa driver release. No live inputs, VM connection, scoring writes or HTTP calls exist.** `python -m cleanlap` always returns exit status **2 (NOT AUTHORIZED)**, even for a clean synthetic circle. Read `REPORT.md` for clean real-geometry **bicycle-model** results and unresolved calibration/live-integration gates. Nothing in this directory is automatically packaged with RiceTrials.
+**Standalone runtime preparation:** [RUNBOOK.md](RUNBOOK.md) documents the
+localhost CSP producer, supervised Windows gamepad backend, read-only wheel
+capture, offline integration tests, stop/restore procedure and V2 receipts.
+Controls remain disabled until an operator commissions the installed car,
+geometry, steering and override. No Windows/AC driving validation or official
+clean lap is claimed. Nothing here is automatically packaged with RiceTrials.
+
+**Original offline entry point:** `python -m cleanlap` is unchanged and always
+returns exit status **2 (NOT AUTHORIZED)**, even for a clean synthetic circle.
+The new, separately invoked `python -m cleanlap.drive` defaults to no actuator;
+`run` requires explicit release/arm plus a complete measured calibration.
+Read `REPORT.md` for historical baseline and new milestone evidence.
 
 ## Reproduce
 

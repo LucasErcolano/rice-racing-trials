@@ -1,0 +1,6 @@
+# Optional host/offline preparation tools; no installation into a VM is performed.
+-r requirements.txt
+lupa==2.6
+acd.py==1.1.0
+# Windows runtime only: explicitly review/install the ViGEmBus dependency first.
+vgamepad==0.1.0; sys_platform == 'win32'

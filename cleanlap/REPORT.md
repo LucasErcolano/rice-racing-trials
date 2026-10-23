@@ -86,3 +86,186 @@ PYTHONPATH=dist/cleanlap/deps $P -m cleanlap \
 Continuation changes: new `cleanlap/optimization.py`; modified `planning.py`, `__main__.py`, `requirements.txt`, `README.md`, `REPORT.md`, `tests/test_planning.py`, `tests/test_real_geometry.py`, `tests/test_artifacts.py`. No changes to `control.py`, geometry ingestion, validation/detector rules, source track or vehicle physics were needed. All source files remain under the existing untracked `cleanlap/` delivery; ignored derivatives are not for release packaging.
 
 Remaining blockers are real integration/calibration, not the three former offline route violations: verified installed asset identities; road/cone/slalom survey; full body/wheel/reference-frame and steering calibration; a verified pit connector; actual feedback/input adapter, watchdog and manual override; explicit VM release and supervised in-game testing. Native AC timing, actual contacts/offtracks, complete penalty receipts, single-cone +2 s behavior and `/v2/field` delivery remain **not performed/unknown**. `scoring_armed=False` must remain unchanged. The synthetic one-cone test is not an actual detector or receipt test. Passing these offline laps does not establish real P0–P2 or authorize physical/live actuation.
+
+## Standalone driving-preparation milestone — 2026-10-23
+
+The preceding sections are the historical offline baseline. This continuation adds
+an actual standalone adapter/runtime, but **does not commission it for AC driving**.
+No VM connection/probe/SSH/guest-agent/libvirt/mount, installation, commit, push,
+release or scoring write was performed. Branch/HEAD remain
+`feat/fsaej-cleanlap-autopilot` / `5059c5b`. Only `cleanlap/` source/docs/new tests
+and ignored `dist/cleanlap/` evidence are changed.
+
+### Implemented
+
+- CSP Lua app with read-only player/live/identity/reset/wheel telemetry over
+  loopback UDP. The Python transport exercises real sockets and nonce challenge
+  freshness; runtime latches reset, non-monotonic, stale, disconnected, mismatched
+  identity and implausible-motion faults. Native timing fields are observations,
+  not fabricated official receipts. SDK `shared/socket` import and indexed
+  `ac.onCarJumped(0, callback)` signature were checked and regression-tested.
+- Real vgamepad backend plus calibrated stick/trigger mapping. A separate device
+  process and inner watchdog independently release and latch after a 150 ms command
+  lease expires. Linux fake-device calls, not Windows/ViGEmBus, are verified.
+- Production bounded supervisor with explicit release/arm/calibration gates,
+  fresh post-start input, stop file/Ctrl-C/disconnect handling, non-actuating
+  observation and automatic post-release diagnostics. No automated re-arm or
+  blind recovery. Neutral release is not a physical-brake guarantee.
+- Verified Hermite pit connector and limited-speed merge, rejected on
+  boundary/cone/swept-body/heading/curvature conflict. Unsurveyed aprons remain
+  inaccessible; operator recovery is required outside the verified envelope.
+- Pre-launch controls preparation with exact-byte backups, target/content hashes,
+  applied-profile verification and conflict-refusing/idempotent restoration.
+  The runtime does not pretend editing a running game's INI reloads its controls.
+- Scalar packed-physics evidence and read-only wheel-observation analyzer.
+  Sampled cylinder-envelope bounds are explicitly not a full-lock certificate.
+- Geometric candidate contacts/offtrack/slalom/checkpoints with unknown native and
+  official penalty values; read-only V2 receipts using actual schema/validator
+  definitions and exact five-part lap identity, matching revisions/time, both
+  channels, valid native evidence, detector evidence and server-approved penalty
+  hash. Missing/incomplete counts stay null. Official always remains false.
+
+### Actual verification
+
+Executed with the existing scratch venv and `PYTHONPATH=dist/cleanlap/deps`, real
+geometry enabled:
+
+```text
+python -m unittest discover -s cleanlap/tests -v
+Ran 40 tests in 265.097s
+OK
+```
+
+Log: `dist/cleanlap/verification/runtime-full-tests-final.log`. All **21 original tests**
+remain byte-identical and pass; 19 new tests cover standalone preparation. The
+original real-geometry candidate/trajectory regression ran, not skipped. No
+acceptance geometry, original controller/planner/validator or original test was
+weakened or edited.
+
+The actual Lua source executes in Lupa/LuaJIT with mocked CSP/socket/JSON APIs,
+including pause/replay/reset and optional wheel-data behavior. Real loopback
+socket tests exercise production admission/controller and command loop through a
+clearly labeled fake actuator and synthetic bicycle. The executable synthetic
+socket lap completed **125.6716000000342 m**; it is **not AC evidence**. Stale
+commands, out-of-order/replayed data, teleport/reset and disconnect release/latch.
+A real forked owner-process test expires the command lease without main-loop
+progress, observes fake-pad neutral reset, and joins the child. Default observe
+CLI is exercised against a local producer and emits automatic diagnostics without
+importing/creating a gamepad. Controls-prepare/restore CLI tests use temporary
+synthetic files and verify exact original bytes plus conflict refusal.
+
+On the preserved real geometry, a read-only runtime benchmark admitted the plan
+in 0.927 s before actuator creation and ten stationary supervision steps took
+approximately 0.040–0.042 s each on this host. This is not a Windows timing bound.
+Initialization is deliberately performed before the watchdog device starts.
+
+The three preserved validated artifact sets (`verified-refined-three`,
+`verified-refined-six`, `verified-refined-slow`) match **all** existing manifest
+artifact and original-code hashes; no mismatch. Verification receipt:
+`dist/cleanlap/verification/preserved-artifacts.json`. The three/six plan SHA-256
+remains `ded8d260f063930588ecebb4887109f0b10870f70911e5be1d21d8b47f347b8b`;
+slow plan remains
+`88666fa7bdd04c3842f9b0b974be4d070fab0d8496ce8402db1820637b034f2e`.
+
+### Host physics evidence and explicit unknowns
+
+Read `content/cars/madformulateam_mft02/data.acd` from the supplied standalone ZIP
+using `acd.py` 1.1.0, unpacked **in memory only**. No physics was modified or
+redistributed. Scalar evidence is in `dist/cleanlap/car-physics-evidence.json`,
+with archive/ACD/collider/per-source-INI SHA-256 provenance:
+
+- wheelbase 1.545 m; front/rear track 1.17 m; CG_LOCATION 0.45;
+- STEER_LOCK 150 degrees, STEER_RATIO 4.95, linear steer-rod ratio 0.001221;
+- front/rear tyre width 0.1905 m and radius 0.2286 m.
+
+A lock/ratio estimate is about 0.528888 rad, **not measured road-wheel lock**:
+Ackermann, toe/camber, suspension motion, body reference and X360 transfer remain
+unverified. Full wheel envelope and verified road-wheel limit are **null**.
+Installed VM identity is unknown. The preserved plan's provisional vehicle values
+must not be promoted to real calibrated values: obtain observations, replan into
+new artifacts and revalidate before arm. There is no fabricated live calibration.
+
+ACD SHA-256:
+`85a0b4a3043aa8cde398a7ee53ecddb9fb63b290ae83e62c6abee1e8b8315c39`.
+Archive SHA-256:
+`1a4b4e61f38e4575b1410b03f3fcb0d8a8014f1265f58222fa4c79109808e9b4`.
+
+### Remaining gates and operational handoff
+
+See English `RUNBOOK.md` for acquisition, calibration, controls preparation,
+supervised startup, safe-fail pit admission, manual recovery, stop/restore,
+diagnostics, API provenance and exact runnable commands. Runtime optional
+dependencies are isolated in `requirements-runtime.txt`; no Windows installation
+was attempted. Upstream primary CSP socket and vgamepad sources were fetched
+read-only; community-generated API declarations are labeled as such, not proof
+of the installed CSP version. The Hermes search backend reported an unavailable
+provider fallback; direct upstream retrieval supplied the API source instead.
+
+Still **not verified**: actual Windows XInput/ViGEmBus calls, CSP app loading and
+installed API behavior, configured AC steering gain/filter/lag/deadzone, physical
+manual stop/override, full tyre/body sweep and reference transform, surveyed pit
+apron and installed asset identity. There are **no actual native/penalty receipts,
+no actual clean lap, no actual one-cone +2 s validation and no scoring changes**.
+The runtime remains disabled by default and these gaps must not be bypassed.
+
+## Review corrections — 2026-10-23 (current verification)
+
+Three independently reproduced safety defects were confirmed against the source
+before changes. The historical 40-test result above is superseded by **52 tests,
+267.169 s, OK, no skips**, including all 21 byte-identical original tests and the
+real-geometry regression. Command:
+
+```sh
+PYTHONPATH=dist/cleanlap/deps CLEANLAP_GEOMETRY=dist/cleanlap/FSAEJ_Endurance.geometry.json \
+  /home/lucas/.hermes/cache/scratch/cleanlap-venv/bin/python \
+  -m unittest discover -s cleanlap/tests -v
+```
+
+Log: `dist/cleanlap/verification/review-full-tests.log`. The 12 focused review
+regressions pass in 2.795 s. TDD RED was observed for the missing commissioned
+identity constructor contract, missing reported footprint configuration, seven
+false-positive complete traversals (protocol/car/track/epoch/sequence/paused/replay),
+and default-vehicle traversal qualification, followed by focused GREEN runs.
+The live continuous synthetic traversal positive control also passes.
+
+- **P1 first-frame identity:** `drive.py` binds `Runtime` to the calibration car
+  and admitted preflight epoch before gamepad initialization. A fresh frame is
+  still requested after initialization; neither preflight command nor stale
+  preflight frame is sent. Car/epoch mismatch on that first frame latches STOP
+  and releases before any actuator send; restoration of the old identity does
+  not re-arm. Separate car and epoch regressions assert zero sends and latching.
+  CSP session-start/jump callbacks define the epoch boundary.
+- **P2 footprint:** runtime/observe diagnostics now use the exact plan Vehicle,
+  not default dimensions. Reports expose all vehicle parameters, and the parent
+  runtime report binds the plan hash. Standalone diagnose requires a matching
+  geometry-bound `--plan` and reports its canonical hash. Direct Python fallback
+  is prominently provisional and cannot qualify checkpoint completion. The
+  nondefault-width regression demonstrates different offtrack results at the
+  same pose and checks the reported full configuration.
+- **P2 traversal:** protocol, live/replay/pause status, car/track/epoch, integer
+  sequence and source clock are validated. A discontinuity breaks adjacent
+  swept-body/checkpoint segments and invalidates whole-trace checkpoint
+  completion; no mixing of sessions or stitching around invalid frames yields
+  an unqualified complete traversal. Candidate geometry/slalom remains separate
+  from genuine native/official receipts.
+
+Recomputed all 12 artifact/original-code/checkpoint hashes for each of the three
+preserved validated artifact directories: **36 matching checks, zero mismatches**.
+Manifest hashes also match the prior preservation receipt. Original six test
+files match HEAD byte-for-byte. Receipt:
+`dist/cleanlap/verification/review-artifact-hashes.json`. No geometry, original
+controller/planner/validator, original tests or validated artifacts were modified.
+`git diff --check` and individual new-source whitespace checks pass.
+
+Changed in this review: `cleanlap/runtime.py`, `cleanlap/drive.py`,
+`cleanlap/diagnostics.py`, new `cleanlap/tests/test_review_safety.py`,
+`cleanlap/REPORT.md`, `cleanlap/RUNBOOK.md`; verification logs/receipt only under
+ignored `dist/cleanlap/verification/`. No VM access/probe, commit or push.
+
+These are Linux-tested corrections, **not Windows commissioning**. Actual CSP
+loading/session/reset API behavior, installed car/track identity, Windows
+XInput/ViGEmBus and multiprocessing startup/latency, AC control transfer and
+manual stop/override, surveyed pit/road/cones/slaloms, full tyre/body/reference
+calibration, native timing and genuine dual-channel receipts remain unverified.
+There is still no actual AC clean lap or one-cone +2 s validation; scoring remains
+unchanged and default actuation remains disabled.
