@@ -211,6 +211,7 @@ Step 'install.ps1 installs with token via Read-Host and restricted ACL' {
     & "$release\install.ps1" -AssettoRoot $ac -StationId ST01 -ServerUrl "http://127.0.0.1:$Port" -SkipArchiveHashes -EnableDiagnostics -ReportPath $report
     Assert (Test-Path "$target\RiceTrials.lua") 'app not installed'
     foreach ($m in @('native_overlay.lua','native_render.lua')) { Assert (Test-Path "$target\$m") "native overlay not installed: $m" }
+    foreach ($m in @('lap_clock.lua','lap_sync.lua')) { Assert (Test-Path "$target\$m") "native lap timing not installed: $m" }
     Assert ((Get-Content "$target\manifest.ini" -Raw) -match 'windowNative') 'manifest lacks the windowNative window'
     Assert ($global:RicePrompts[-1] -match 'Station token') 'did not prompt for the token via Read-Host'
     $config = [IO.File]::ReadAllText("$target\station_config.lua")

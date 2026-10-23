@@ -80,13 +80,30 @@ local function penalty_row(text, color, pending)
   return {label = 'PENALTY', text = text, color = color, size = 'small', pending = pending or false}
 end
 
+-- LAST / BEST rows. A final time built on AC's own lap time is white/blue; one still built on
+-- the route estimate is amber and says so on a small SOURCE row (never passed off as AC's).
+local SOURCE_TEXT = {confirmed = 'AC TIME', pending = 'ESTIMATE, AC PENDING',
+  unmatched = 'ESTIMATE', mismatch = 'ESTIMATE, AC MISMATCH'}
+local function last_best(rows, state, best)
+  local lastEst = state.last_ms ~= nil and state.last_state ~= nil and state.last_state ~= 'confirmed'
+  rows[#rows + 1] = row('LAST', M.format_time(state.last_ms) or '--', lastEst and PALETTE.pending or PALETTE.value)
+  if state.last_ms ~= nil and SOURCE_TEXT[state.last_state] then
+    rows[#rows + 1] = row('SOURCE', SOURCE_TEXT[state.last_state], lastEst and PALETTE.pending or PALETTE.label, 'small')
+  end
+  local bestEst = state.official_status ~= 'VALID' and best ~= nil and state.best_state ~= nil and
+    state.best_state ~= 'confirmed'
+  rows[#rows + 1] = row('BEST', M.format_time(best) or '--', bestEst and PALETTE.pending or PALETTE.best)
+end
+
 -- Build the Lap Timing overlay model from the driver-visible state.
 --
 -- state (every field optional, all values already computed by the client):
 --   lap_number     integer          -- LAP nn shown by AC
 --   current_ms     integer          -- live lap time (nil: no timed lap)
 --   last_ms        integer          -- last finished final time (raw + penalties)
+--   last_state     string           -- confirmed (AC time) | pending | unmatched | mismatch
 --   best_ms        integer          -- best final time of this run
+--   best_state     string           -- same states as last_state
 --   official_ms    integer          -- server-confirmed VALID time, if any
 --   official_status string           -- VALID | PENDING_REVIEW | ...
 --   penalty_ms     integer          -- penalty total already applied to current_ms
@@ -109,14 +126,12 @@ local function timing_rows(state)
   end
   if state.outlap or state.phase == 'outlap' then
     rows[#rows + 1] = row('CURRENT', 'OUTLAP', PALETTE.pending, 'small')
-    rows[#rows + 1] = row('LAST', M.format_time(state.last_ms) or '--', PALETTE.value)
-    rows[#rows + 1] = row('BEST', M.format_time(best) or '--', PALETTE.best)
+    last_best(rows, state, best)
     return rows
   end
   if not timed then
     rows[#rows + 1] = row('CURRENT', '--:--.---', PALETTE.dim)
-    rows[#rows + 1] = row('LAST', M.format_time(state.last_ms) or '--', PALETTE.value)
-    rows[#rows + 1] = row('BEST', M.format_time(best) or '--', PALETTE.best)
+    last_best(rows, state, best)
     return rows
   end
 
@@ -129,8 +144,7 @@ local function timing_rows(state)
   elseif state.penalty_pending == true then
     rows[#rows + 1] = penalty_row('NO EVIDENCE', PALETTE.pending, true)
   end
-  rows[#rows + 1] = row('LAST', M.format_time(state.last_ms) or '--', PALETTE.value)
-  rows[#rows + 1] = row('BEST', M.format_time(best) or '--', PALETTE.best)
+  last_best(rows, state, best)
   return rows
 end
 
@@ -145,7 +159,8 @@ function M.timing(state, config)
 end
 
 -- Build the delta meter model. `delta_ms` is the ALREADY computed value from
--- delta.lua (current final-time pace vs best final lap, penalties included);
+-- delta.lua (current DRIVING time vs the best lap's driving time; penalties are
+-- shown on their own PENALTY row and are not part of the delta);
 -- this module never touches the delta math. Signature matches timing():
 -- (value, options, config).
 --

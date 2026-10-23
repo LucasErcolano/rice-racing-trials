@@ -180,13 +180,23 @@ function M.model(state, config)
   end
 
   -- This station's own result: raw + configured penalties (not an official time).
+  -- The raw part is AC's own lap time only when state == 'confirmed'; otherwise it is the
+  -- route estimate and is labelled as such (an estimate is never shown as AC's time).
+  local SOURCE = {confirmed = 'AC', pending = 'EST, AC pending', unmatched = 'EST',
+    mismatch = 'EST, AC MISMATCH'}
   local ll = type(state.last_local) == 'table' and state.last_local or nil
   if ll and int(ll.raw_ms) and int(ll.corrected_ms) then
+    local src = ll.state ~= nil and (SOURCE[ll.state] or 'EST') or nil
     add('Last Final: '..M.format_ms(ll.corrected_ms)..' ('..M.format_ms(ll.raw_ms)..' + '..
-      string.format('%.1f', (ll.penalty_ms or 0) / 1000)..' s)', (ll.penalty_ms or 0) > 0 and 'warn' or 'ok')
+      string.format('%.1f', (ll.penalty_ms or 0) / 1000)..' s)'..(src and ' '..src or ''),
+      ((ll.penalty_ms or 0) > 0 or (ll.state ~= nil and ll.state ~= 'confirmed')) and 'warn' or 'ok')
   end
   local bl = type(state.best_local) == 'table' and state.best_local or nil
-  if bl and int(bl.corrected_ms) then add('Best Final: '..M.format_ms(bl.corrected_ms), 'ok') end
+  if bl and int(bl.corrected_ms) then
+    local src = bl.state ~= nil and (SOURCE[bl.state] or 'EST') or nil
+    add('Best Final: '..M.format_ms(bl.corrected_ms)..(src and ' '..src or ''),
+      (bl.state ~= nil and bl.state ~= 'confirmed') and 'warn' or 'ok')
+  end
 
   -- Best corrected lap: only a VALID result from the server counts.
   local best = type(state.best) == 'table' and state.best or nil

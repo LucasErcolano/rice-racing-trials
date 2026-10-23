@@ -25,7 +25,20 @@ do
   local okD, m = pcall(require, 'delta')
   if okD and type(m) == 'table' then deltaMod = m; deltaD = m.new() end
 end
-local lastLap, bestLap = nil, nil   -- local results of this app run: {raw_ms, penalty_ms, corrected_ms, applied}
+-- Local results of this app run (lap_sync.lap): {raw_ms, route_raw_ms, native_ms, penalty_ms,
+-- corrected_ms, state = confirmed|pending|unmatched|mismatch, ...}. raw_ms is AC's time of the
+-- same lap once confirmed, the route estimate otherwise.
+local lastLap, bestLap = nil, nil
+-- Route clock (lap_clock.lua) and route/native lap identity (lap_sync.lua) live in ONE table so
+-- script.update stays under LuaJIT's 60-upvalue limit. Both are optional: without them the
+-- route clock is frame dt (v0.3.0) and every lap stays an unmatched estimate.
+local lapTiming = {laps = {}, seq = 0}
+do
+  local okC, m = pcall(require, 'lap_clock')
+  if okC and type(m) == 'table' then lapTiming.clock = m.new() end
+  local okS, m2 = pcall(require, 'lap_sync')
+  if okS and type(m2) == 'table' then lapTiming.sync = m2 end
+end
 local fieldSamples, fieldSampleClock, fieldTruncated = {}, 0.5, false
 local function coneReset()
   fieldSamples, fieldSampleClock, fieldTruncated = {}, 0.5, false
@@ -456,6 +469,8 @@ local function resetRoute(reason)
   end
   liveDelta = nil
   if deltaD then pcall(deltaD.abort, deltaD) end
+  if lapTiming.clock then pcall(lapTiming.clock.reset, lapTiming.clock) end
+  lapTiming.phase, lapTiming.snap = nil, nil
   coneReset()
   status = 'OUTLAP_RESET / '..(reason or 'TELEPORT_OR_GAP')..' / NOT SCORED'
   if diag then pcall(diag.event, diag, 'route_reset', {reason=reason or 'TELEPORT_OR_GAP'}) end
@@ -516,6 +531,225 @@ function script.expireAssignment(dt)
     if persist() then status = 'ASSIGNMENT_EXPIRED / UNASSIGNED / PENDING_REVIEW ONLY' end
   end
 end
+-- Cone / off-course / slalom detectors for one frame of a timed lap (moved out of
+-- script.update to keep it under LuaJIT's 60-upvalue limit; logic unchanged).
+local function observeDetectors(car, pose, dt, wasTimed)
+  if not (coneMachine or limitsMachine or slalomMachine) then return end
+  if wasTimed then
+    if coneMachine then
+      local okC, res = pcall(coneMachine.observe, coneMachine, conePrev, pose)
+      if okC and type(res) == 'table' and res.status == 'candidate' then
+        for _, id in ipairs(res.cones) do
+          coneIds[#coneIds+1] = id
+          if not coneExcluded[id] then autoCones = autoCones + 1 end
+        end
+      end
+    end
+    if limitsMachine then
+      local okL, res = pcall(limitsMachine.observe, limitsMachine, pose, dt)
+      if okL and type(res) == 'table' and res.new then offTimes[#offTimes+1] = elapsed end
+    end
+    if slalomMachine and conePrev then
+      local okS, res = pcall(slalomMachine.observe, slalomMachine, conePrev, pose)
+      if okS and type(res) == 'table' and type(res.gates) == 'table' then
+        for _, id in ipairs(res.gates) do
+          gateTimes[id] = elapsed
+          local pass = slalomMachine.passes and slalomMachine.passes[id]
+          if diag and pass then pcall(diag.event, diag, 'slalom_gate', {id=id, sign=pass.sign, lateral=pass.lateral}) end
+        end
+      end
+    end
+    local wo = field(car, 'wheelsOutside')
+    if type(wo) == 'number' and wo > maxWheelsOut then maxWheelsOut = wo end
+  end
+  conePrev = pose
+end
+-- Route clock step for this frame: AC physics time (car.lapTimeMs) when available, frame dt
+-- otherwise (see lap_clock.lua). Also re-phases a lap whose route start crossing preceded
+-- AC's own line by a frame.
+local function clockStep(dt, car)
+  local step = dt
+  if lapTiming.clock then
+    local ok, s = pcall(lapTiming.clock.step, lapTiming.clock, dt, car)
+    if ok and type(s) == 'number' and s >= 0 then step = s end
+  end
+  lapTiming.step = step
+  if lapTiming.sync and started and lapTiming.phase and not lapTiming.phase.synced then
+    local okR, ph = pcall(lapTiming.sync.resync, lapTiming.phase, car, (elapsed + step - started) * 1000)
+    if okR and type(ph) == 'table' then
+      lapTiming.phase = ph
+      if fieldV2 then
+        local okB, tok = pcall(fieldV2.begin_lap, fieldV2, nil, ph.lap_count + 1)
+        if okB and tok then fieldToken = tok end
+      end
+      if diag then pcall(diag.event, diag, 'native_phase_resync', {lap_count=ph.lap_count}) end
+    end
+  end
+  return step
+end
+-- A timed lap starts at the route line: freeze the native phase and the clock evidence.
+-- back_ms: route clock between the interpolated crossing and the end of this frame.
+-- previousToken: the Field V2 token of the lap that just closed (nil after an outlap).
+local function beginTimedLap(car, back_ms, previousToken)
+  local okP, ph = pcall(function() return lapTiming.sync and lapTiming.sync.phase(car, back_ms) or nil end)
+  lapTiming.phase = okP and ph or nil
+  lapTiming.snap = lapTiming.clock and lapTiming.clock:snapshot() or nil
+  local target = lapTiming.phase and lapTiming.phase.synced and lapTiming.phase.lap_count + 1 or nil
+  if fieldV2 then
+    local okB, tok = pcall(fieldV2.begin_lap, fieldV2, previousToken, target)
+    fieldToken = okB and tok or nil
+  end
+  if diag then pcall(diag.event, diag, 'lap_begin', {token=fieldToken, phase=lapTiming.phase}) end
+  if deltaD then pcall(deltaD.begin, deltaD, field(car, 'splinePosition')) end
+end
+-- Native result for a local lap from the channel that owns its identity.
+local function nativeFor(l)
+  if l.token and fieldV2 then
+    local ok, r = pcall(fieldV2.native_result, fieldV2, l.token)
+    if ok and type(r) == 'table' then return r end
+  elseif l.id and nativeLaps then
+    local ok, r = pcall(nativeLaps.result_for, nativeLaps, l.id)
+    if ok and type(r) == 'table' then return r end
+  end
+  return {state='unavailable'}
+end
+-- LAST / BEST / delta reference follow the reconciled laps. BEST is the lowest final time
+-- (raw + penalties) of a lap whose identity was not contradicted. The delta reference is the
+-- best such lap that also has a complete trace: its DRIVING-time trace (no penalties) is
+-- rescaled to AC's confirmed time of that same lap, so live and reference share one time base.
+local function refreshResults()
+  local laps, best, ref = lapTiming.laps, nil, nil
+  for _, l in ipairs(laps) do
+    if l.state ~= 'mismatch' and type(l.corrected_ms) == 'number' then
+      if not best or l.corrected_ms < best.corrected_ms then best = l end
+      if l.trace and (not ref or l.corrected_ms < ref.corrected_ms) then ref = l end
+    end
+  end
+  bestLap, lastLap = best, laps[#laps]
+  if not deltaD then return end
+  local key = ref and (tostring(ref.seq)..':'..tostring(ref.raw_ms)) or nil
+  lapTiming.refConfirmed = ref ~= nil and ref.state == 'confirmed'
+  if key == lapTiming.refKey then return end
+  lapTiming.refKey = key
+  if ref then pcall(deltaD.adopt, deltaD, ref.trace, ref.raw_ms, ref.corrected_ms, true)
+  else pcall(deltaD.clear, deltaD) end
+  if diag then pcall(diag.event, diag, 'delta_reference', {seq=ref and ref.seq, state=ref and ref.state,
+    final_ms=ref and ref.raw_ms}) end
+end
+function script.pollNative(dt)
+  if not lapTiming.sync then return end
+  local changed = false
+  for _, l in ipairs(lapTiming.laps) do
+    if lapTiming.sync.open(l) then
+      local okA, moved = pcall(lapTiming.sync.apply, l, nativeFor(l), dt)
+      if okA and moved then
+        changed = true
+        if diag then pcall(diag.event, diag, 'lap_native', {lap_id=l.id or l.token, state=l.state,
+          reason=l.reason, native_ms=l.native_ms, route_raw_ms=l.route_raw_ms,
+          divergence_ms=l.divergence_ms, native_lap_count=l.native_lap_count,
+          expected_lap_count=l.expected_lap_count, corrected_ms=l.corrected_ms}) end
+      end
+    end
+  end
+  if changed then refreshResults() end
+end
+-- Route lap complete at crossedAt: build the payload, queue/hand it over and record the local
+-- result (moved out of script.update, logic unchanged). Returns false when the caller must
+-- stop processing this frame.
+local function closeLap(car, raw, crossedAt)
+  local id = station..'-'..nonce..'-'..tostring(nextId)
+  local lapNumber = (lapNumbers[frozen.session_id] or 0) + 1
+  local okScoring, scoring = pcall(require, 'scoring')
+  local payload = {protocol_version=1, station_id=frozen.station_id, lap_id=id,
+    session_id=frozen.session_id, pilot_id=frozen.pilot_id, event='endurance',
+    assignment_revision=frozen.assignment_revision,
+    raw_ms=raw, status='PENDING_REVIEW', scoring_version=1, lap_number=lapNumber,
+    rules_version=okScoring and type(scoring) == 'table' and scoring.RULES_VERSION or nil,
+    calibration_version=type(calibration.calibration_version) == 'string' and calibration.calibration_version or nil,
+    client_timestamp=os.time(), detector=coneDetector()}
+  -- The station scores the lap: final time = raw + configured penalties. The settings used
+  -- travel with the lap, so later edits never rewrite it.
+  local outcome = penaltyOutcome()
+  if outcome then
+    payload.corrected_ms = raw + outcome.penalty_ms
+    payload.penalty = {penalty_ms=outcome.penalty_ms, applied=outcome.applied,
+      deduped=outcome.deduped, config=penaltyStore.cfg}
+  end
+  -- JSON libraries may encode an empty Lua table as []; the server requires
+  -- events to be an object. Append the literal empty object to encoded scalars.
+  local ok, serialized = pcall(JSON.stringify, payload)
+  if ok and type(serialized) == 'string' and serialized:sub(1,1) == '{' and
+      serialized:sub(-1) == '}' then
+    serialized = serialized:sub(1,-2)..',"events":'..eventsJson()..'}'
+  else serialized = nil end
+  local clockEvidence = lapTiming.clock and lapTiming.clock:since(lapTiming.snap) or nil
+  local phase = lapTiming.phase
+  local token = fieldToken
+  if protocolV2 and fieldV2 and phase and not phase.synced then
+    -- The route line and AC's line were not crossed together: the native slot reserved at the
+    -- start is a guess. Never pair on a guess; the server keeps this lap under review.
+    local okB, tok = pcall(fieldV2.begin_lap, fieldV2, nil, false)
+    token = okB and tok or nil
+  end
+  if protocolV2 then
+    if fieldV2 then
+      local snap = fieldSnapshot()
+      snap.evidence.route_clock = clockEvidence
+      snap.evidence.native_phase = phase and {lap_count=phase.lap_count, lap_time_ms=phase.lap_time_ms,
+        synced=phase.synced, late=phase.late} or {available=false}
+      pcall(fieldV2.finish_lap, fieldV2, token, raw, snap)
+    end
+  else
+    if not ok or type(serialized) ~= 'string' or not queue:add(id, serialized) then
+      fail('QUEUE_UNAVAILABLE / NOT SENT'); return false end
+    nextId = nextId + 1
+    lapNumbers[frozen.session_id] = lapNumber
+    if not persist() then return false end
+  end
+  coneReset()
+  crossings = crossings + 1
+  lastResult = {raw_seconds=raw/1000}
+  -- What the driver sees: route estimate + penalties until AC's time of the same lap is
+  -- confirmed, then AC time + the same penalties (never an official result).
+  local l = lapTiming.sync and lapTiming.sync.lap(raw, outcome, phase, protocolV2 and nil or id) or
+    {route_raw_ms=raw, raw_ms=raw, penalty_ms=outcome and outcome.penalty_ms or 0,
+     corrected_ms=raw + (outcome and outcome.penalty_ms or 0), applied=outcome and outcome.applied or nil,
+     scored=outcome ~= nil, state='unmatched', reason='lap_sync_unavailable', source='route'}
+  lapTiming.seq = lapTiming.seq + 1
+  l.seq, l.token, l.clock = lapTiming.seq, protocolV2 and token or nil, clockEvidence
+  if l.token and not phase and l.state == 'unmatched' then
+    -- No native phase (CSP without lapTimeMs): Field V2's own slot identity (v0.3.0 rule) is
+    -- what the server will reconcile, so the windows follow the same slot.
+    local okR, r = pcall(fieldV2.native_result, fieldV2, l.token)
+    if okR and type(r) == 'table' and type(r.lap_count) == 'number' and r.state ~= 'ambiguous' then
+      l.state, l.reason, l.expected_lap_count, l.identity = 'pending', nil, r.lap_count, 'field_v2_slot'
+    end
+  end
+  if deltaD then
+    local okC, trace = pcall(deltaD.close, deltaD, raw)
+    l.trace = okC and trace or nil
+  end
+  if lapTiming.sync then lapTiming.sync.push(lapTiming.laps, l)
+  else
+    lapTiming.laps[#lapTiming.laps + 1] = l
+    if #lapTiming.laps > 50 then table.remove(lapTiming.laps, 1) end
+  end
+  if nativeLaps and not protocolV2 then pcall(nativeLaps.note_route_lap, nativeLaps, id, raw, l.expected_lap_count) end
+  if diag then pcall(diag.event, diag, 'lap_route', {lap_id=id, token=token, route_raw_ms=raw,
+    penalty_ms=l.penalty_ms, expected_lap_count=l.expected_lap_count, state=l.state, reason=l.reason,
+    phase=phase, clock=clockEvidence}) end
+  if fieldV2 then pcall(fieldV2.pump,fieldV2) end
+  script.pollNative(0)
+  refreshResults()
+  status = 'PENDING_REVIEW / LOCALLY STORED / NOT SCORED'
+  sendPending()
+  started = crossedAt
+  -- Each subsequent lap must be bound to current authenticated assignment.
+  frozen = assignment and {station_id=station, session_id=assignment.session_id,
+    pilot_id=assignment.pilot_id, assignment_revision=assignment.assignment_revision} or nil
+  beginTimedLap(car, (elapsed - crossedAt) * 1000, token)
+  return true
+end
 function script.update(dt)
   if penaltyStore then pcall(penaltyStore.flush, penaltyStore, dt) end
   autostart()
@@ -524,8 +758,8 @@ function script.update(dt)
   local gate = simGate() -- independent of route/calibration availability
   local replay = gate == 'REPLAY'
   local nativeCar
-  -- Inline (not getCar0): script.update is at LuaJIT's 60-upvalue limit; ac/pcall are globals.
-  if (nativeLaps or fieldV2) and ac and ac.getCar ~= nil then
+  -- Inline (not getCar0): keeps script.update's upvalue count low; ac/pcall are globals.
+  if ac and ac.getCar ~= nil then
     local okCar, c = pcall(ac.getCar, 0)
     if okCar then nativeCar = c end
   end
@@ -538,6 +772,7 @@ function script.update(dt)
     pcall(fieldV2.observe, fieldV2, nativeCar, dt, replay)
     pcall(fieldV2.pump, fieldV2) -- transport must run even without a live car
   end
+  pcall(script.pollNative, dt)
   if type(dt) ~= 'number' or dt <= 0 or dt > 1 then resetRoute(); return end
   retryClock, heartbeatClock, gameClock = retryClock + dt, heartbeatClock + dt, gameClock + dt
   if retryClock >= 5 then retryClock = 0; sendPending() end
@@ -561,7 +796,8 @@ function script.update(dt)
       (previous and ((current.x-previous.x)^2+(current.z-previous.z)^2 > (100*dt+1)^2)) then
     resetRoute(); previous = current; return
   end
-  elapsed = elapsed + dt
+  local step = clockStep(dt, car)
+  elapsed = elapsed + step
   local wasTimed = route.phase == 'timed' and started ~= nil
   local look = field(car, 'look')
   local lx, lz = look and field(look, 'x'), look and field(look, 'z')
@@ -583,47 +819,18 @@ function script.update(dt)
     end
   end
   local transition, fraction = route:observe(previous, current)
-  if coneMachine or limitsMachine or slalomMachine then
-    if wasTimed then
-      if coneMachine then
-        local okC, res = pcall(coneMachine.observe, coneMachine, conePrev, pose)
-        if okC and type(res) == 'table' and res.status == 'candidate' then
-          for _, id in ipairs(res.cones) do
-            coneIds[#coneIds+1] = id
-            if not coneExcluded[id] then autoCones = autoCones + 1 end
-          end
-        end
-      end
-      if limitsMachine then
-        local okL, res = pcall(limitsMachine.observe, limitsMachine, pose, dt)
-        if okL and type(res) == 'table' and res.new then offTimes[#offTimes+1] = elapsed end
-      end
-      if slalomMachine and conePrev then
-        local okS, res = pcall(slalomMachine.observe, slalomMachine, conePrev, pose)
-        if okS and type(res) == 'table' and type(res.gates) == 'table' then
-          for _, id in ipairs(res.gates) do
-            gateTimes[id] = elapsed
-            local pass = slalomMachine.passes and slalomMachine.passes[id]
-            if diag and pass then pcall(diag.event, diag, 'slalom_gate', {id=id, sign=pass.sign, lateral=pass.lateral}) end
-          end
-        end
-      end
-      local wo = field(car, 'wheelsOutside')
-      if type(wo) == 'number' and wo > maxWheelsOut then maxWheelsOut = wo end
-    end
-    conePrev = pose
-  end
+  observeDetectors(car, pose, dt, wasTimed)
   if deltaD and wasTimed and started then
-    local step = previous and math.sqrt((current.x-previous.x)^2 + (current.z-previous.z)^2) or 0
-    local o = penaltyOutcome()
-    local value = (elapsed - started) * 1000 + (o and o.penalty_ms or 0)
-    local okF, dl = pcall(deltaD.feed, deltaD, field(car, 'splinePosition'), step, value)
+    -- Driving time only: penalties are shown on their own line, never folded into the trace.
+    local okF, dl = pcall(deltaD.feed, deltaD, field(car, 'splinePosition'),
+      previous and math.sqrt((current.x-previous.x)^2 + (current.z-previous.z)^2) or 0,
+      (elapsed - started) * 1000)
     liveDelta = okF and dl or nil
   end
   -- Start-line crossing time interpolated inside this frame (position is linear between
   -- the previous and current samples); falls back to the frame end.
   if type(fraction) ~= 'number' or fraction < 0 or fraction > 1 then fraction = 1 end
-  local crossedAt = elapsed - (1 - fraction) * dt
+  local crossedAt = elapsed - (1 - fraction) * step
   if transition == 'OUTLAP' then status = 'OUTLAP / NOT SCORED'
   elseif transition == 'OUTLAP_COMPLETE' then
     if not core.assignment_matches(assignment, assignment and assignment.session_id,
@@ -631,69 +838,13 @@ function script.update(dt)
       resetRoute(); previous = current; status = 'ASSIGNMENT_UNAVAILABLE / NOT SCORED'; return end
     frozen = {station_id=station, session_id=assignment.session_id, pilot_id=assignment.pilot_id,
       assignment_revision=assignment.assignment_revision}
-    if fieldV2 then fieldToken=fieldV2:begin_lap() end
     started = crossedAt; coneReset(); status = 'OUTLAP COMPLETE / ASSIGNMENT FROZEN'
-    if deltaD then pcall(deltaD.begin, deltaD, field(car, 'splinePosition')) end
+    beginTimedLap(car, (elapsed - crossedAt) * 1000, nil)
   elseif transition == 'CHECKPOINT' then status = 'ROUTE CHECKPOINT / NOT SCORED'
   elseif transition == 'COMPLETE' and started and frozen and crossedAt > started then
     local raw = math.floor((crossedAt-started)*1000+0.5)
     if raw <= 0 or raw > 3600000 then resetRoute(); return end
-    local id = station..'-'..nonce..'-'..tostring(nextId)
-    local lapNumber = (lapNumbers[frozen.session_id] or 0) + 1
-    local okScoring, scoring = pcall(require, 'scoring')
-    local payload = {protocol_version=1, station_id=frozen.station_id, lap_id=id,
-      session_id=frozen.session_id, pilot_id=frozen.pilot_id, event='endurance',
-      assignment_revision=frozen.assignment_revision,
-      raw_ms=raw, status='PENDING_REVIEW', scoring_version=1, lap_number=lapNumber,
-      rules_version=okScoring and type(scoring) == 'table' and scoring.RULES_VERSION or nil,
-      calibration_version=type(calibration.calibration_version) == 'string' and calibration.calibration_version or nil,
-      client_timestamp=os.time(), detector=coneDetector()}
-    -- The station scores the lap: final time = raw + configured penalties. The settings used
-    -- travel with the lap, so later edits never rewrite it.
-    local outcome = penaltyOutcome()
-    if outcome then
-      payload.corrected_ms = raw + outcome.penalty_ms
-      payload.penalty = {penalty_ms=outcome.penalty_ms, applied=outcome.applied,
-        deduped=outcome.deduped, config=penaltyStore.cfg}
-    end
-    -- JSON libraries may encode an empty Lua table as []; the server requires
-    -- events to be an object. Append the literal empty object to encoded scalars.
-    local ok, serialized = pcall(JSON.stringify, payload)
-    if ok and type(serialized) == 'string' and serialized:sub(1,1) == '{' and
-        serialized:sub(-1) == '}' then
-      serialized = serialized:sub(1,-2)..',"events":'..eventsJson()..'}'
-    else serialized = nil end
-    if protocolV2 then
-      if fieldV2 then pcall(fieldV2.finish_lap,fieldV2,fieldToken,raw,fieldSnapshot()) end
-    else
-      if not ok or type(serialized) ~= 'string' or not queue:add(id, serialized) then
-        fail('QUEUE_UNAVAILABLE / NOT SENT'); return end
-      nextId = nextId + 1
-      lapNumbers[frozen.session_id] = lapNumber
-      if not persist() then return end
-    end
-    coneReset()
-    crossings = crossings + 1
-    lastResult = {raw_seconds=raw/1000}
-    do -- what the driver sees: raw + station penalties = final time (not an official result)
-      local pen = outcome and outcome.penalty_ms or 0
-      lastLap = {raw_ms=raw, penalty_ms=pen, corrected_ms=raw + pen, applied=outcome and outcome.applied or nil,
-                 scored=outcome ~= nil}
-      if not bestLap or lastLap.corrected_ms < bestLap.corrected_ms then bestLap = lastLap end
-      if deltaD then pcall(deltaD.finish, deltaD, lastLap.corrected_ms) end
-    end
-    if nativeLaps and not protocolV2 then pcall(nativeLaps.note_route_lap, nativeLaps, id, raw) end
-    if fieldV2 then
-      pcall(fieldV2.pump,fieldV2)
-      fieldToken=fieldV2:begin_lap(fieldToken)
-    end
-    status = 'PENDING_REVIEW / LOCALLY STORED / NOT SCORED'
-    sendPending()
-    started = crossedAt
-    if deltaD then pcall(deltaD.begin, deltaD, field(car, 'splinePosition')) end
-    -- Each subsequent lap must be bound to current authenticated assignment.
-    frozen = assignment and {station_id=station, session_id=assignment.session_id,
-      pilot_id=assignment.pilot_id, assignment_revision=assignment.assignment_revision} or nil
+    if not closeLap(car, raw, crossedAt) then return end
   end
   previous = current
 end
@@ -779,18 +930,28 @@ local function timesRows()
   elseif live then
     rows[#rows + 1] = {'NOW    '..f(live.elapsed_ms), 'info'}
   end
+  -- The source of the raw time is always visible: AC's own lap time, or the route estimate
+  -- (pending / unmatched / mismatch) which is never presented as AC's.
   if lastLap then
-    rows[#rows + 1] = {'LAST    '..f(lastLap.corrected_ms), lastLap.penalty_ms > 0 and 'warn' or 'ok'}
-    rows[#rows + 1] = {string.format('        %s + %.1f s', f(lastLap.raw_ms), lastLap.penalty_ms / 1000), 'info'}
+    local est = lastLap.state ~= 'confirmed'
+    rows[#rows + 1] = {'LAST    '..f(lastLap.corrected_ms)..(est and '  EST' or '  AC'),
+      (lastLap.penalty_ms > 0 or est) and 'warn' or 'ok'}
+    rows[#rows + 1] = {string.format('        %s + %.1f s  %s', f(lastLap.raw_ms), lastLap.penalty_ms / 1000,
+      lastLap.state == 'confirmed' and 'AC time' or lastLap.state == 'pending' and 'route est., AC pending' or
+      lastLap.state == 'mismatch' and 'route est., AC MISMATCH: review' or 'route est., no AC time'), 'info'}
   else rows[#rows + 1] = {'LAST    --', 'info'} end
-  rows[#rows + 1] = {'BEST    '..(bestLap and f(bestLap.corrected_ms) or '--'), 'ok'}
+  rows[#rows + 1] = {'BEST    '..(bestLap and (f(bestLap.corrected_ms)..(bestLap.state ~= 'confirmed' and '  EST' or '  AC')) or '--'),
+    bestLap and bestLap.state ~= 'confirmed' and 'warn' or 'ok'}
   return rows
 end
 local function deltaRow()
   if not deltaMod then return nil end
   if not (deltaD and deltaD:has_reference()) then return {'DELTA   -- (no reference lap yet)', 'info'} end
   if liveDelta == nil then return {'DELTA   --', 'info'} end
-  return {'DELTA   '..deltaMod.format(liveDelta)..' s', liveDelta <= 0 and 'ok' or 'error'}
+  -- Driving time vs the BEST lap's driving time (penalties excluded); EST while that lap's
+  -- time is still the route estimate.
+  return {'DELTA   '..deltaMod.format(liveDelta)..' s'..(lapTiming.refConfirmed and '' or '  EST'),
+    liveDelta <= 0 and 'ok' or 'error'}
 end
 -- AC-style meter under the text: centre line, green grows left when faster, red right when slower.
 local function drawDeltaBar(nRows)
@@ -853,14 +1014,17 @@ local function overlayState()
     lap_number = lapNumber,
     current_ms = live and live.elapsed_ms or nil,
     last_ms = lastLap and lastLap.corrected_ms or nil,
+    last_state = lastLap and lastLap.state or nil,
     best_ms = bestLap and bestLap.corrected_ms or nil,
+    best_state = bestLap and bestLap.state or nil,
     -- Penalty total of the lap in progress, only when evidence exists.
     penalty_ms = outcome and outcome.penalty_ms or nil,
     penalty_pending = (outcome == nil) or nil,
     has_reference = hasRef,
     delta_ms = hasRef and liveDelta or nil,
-    -- No reference yet, or the sample is missing: show "--", never a fake 0.
-    delta_pending = hasRef and (liveDelta == nil) or nil,
+    -- No reference yet, or the sample is missing: show "--", never a fake 0. A reference still
+    -- built on a route estimate (AC time not confirmed) keeps the meter amber.
+    delta_pending = hasRef and (liveDelta == nil or not lapTiming.refConfirmed) or nil,
   }
 end
 -- Cached like the HUD: the per-frame window callback only builds/draws models.

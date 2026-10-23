@@ -10,11 +10,15 @@
 --  * lapCount going DOWN (session restart / reset) becomes the new reference, not a lap.
 --  * A draft is saved and read back before anything else; if the save fails it stays in memory
 --    and is retried every few seconds (state 'unsaved').
---  * When the route detector completes a lap with a similar raw time in the same session, the
---    draft is tagged with that lap_id (reconciled) so the two are never counted twice.
+--  * When the route detector completes a lap, it names the AC lap counter value that closes it
+--    (lap_sync.lua phase). The draft with exactly that counter in the same session is tagged with
+--    the route lap_id (reconciled) so the two are never counted twice. Identity, not proximity:
+--    a 5.7 s route/native divergence (frame stalls, lap n-14) still pairs, a route lap without a
+--    counter never pairs, and a same-counter divergence above MAX_DIVERGENCE_MS is a conflict
+--    kept for review instead of a pairing.
 local M = {}
 M.JOURNAL_NAME = 'native_laps'
-M.TOLERANCE_MS = 2000   -- native vs detector raw time still counted as the same lap
+M.MAX_DIVERGENCE_MS = 20000 -- same counter, larger |native - route|: conflict, not paired
 M.MAX_DRAFTS = 500
 M.RETRY_S = 3
 
@@ -73,21 +77,23 @@ function M.new(opts)
     end
   end
 
-  -- Pair unreconciled drafts with detector laps of the same session (closest time wins).
+  -- Pair each detector lap with the draft of the SAME session and AC lap counter.
   local function match()
     local changed = false
     for _, r in ipairs(o.routeLaps) do
-      if not r.used then
-        local best, bestDiff
+      if not r.used and not r.conflict and isint(r.lap_count) then
         for _, d in ipairs(o.drafts) do
-          if not d.rt_lap_id and d.session_seq == r.session and isint(d.time_ms) then
-            local diff = math.abs(d.time_ms - r.raw_ms)
-            if diff <= M.TOLERANCE_MS and (not bestDiff or diff < bestDiff) then best, bestDiff = d, diff end
+          if not d.rt_lap_id and d.session_seq == r.session and d.lap_count == r.lap_count then
+            local diff = isint(d.time_ms) and d.time_ms - r.raw_ms or nil
+            if diff and math.abs(diff) > M.MAX_DIVERGENCE_MS then
+              r.conflict, d.rt_conflict, changed = d.id, r.lap_id, true
+              event('native_conflict', {id = d.id, rt_lap_id = r.lap_id, divergence_ms = diff})
+            else
+              d.rt_lap_id, d.rt_raw_ms, d.rt_divergence_ms, r.used, changed = r.lap_id, r.raw_ms, diff, true, true
+              event('native_reconciled', {id = d.id, rt_lap_id = r.lap_id, divergence_ms = diff})
+            end
+            break
           end
-        end
-        if best then
-          best.rt_lap_id, best.rt_raw_ms, r.used, changed = r.lap_id, r.raw_ms, true, true
-          event('native_reconciled', {id = best.id, rt_lap_id = r.lap_id})
         end
       end
     end
@@ -98,12 +104,33 @@ function M.new(opts)
     self.session, self.ref = self.session + 1, nil
   end
 
-  -- Called by RiceTrials when the detector completes a lap (after it is queued).
-  function o:note_route_lap(lap_id, raw_ms)
+  -- Called by RiceTrials when the detector completes a lap (after it is queued). lap_count is
+  -- the AC counter value that closes this lap, or nil when the native phase is unknown (then
+  -- the lap is kept, but never paired).
+  function o:note_route_lap(lap_id, raw_ms, lap_count)
     if type(lap_id) ~= 'string' or not isint(raw_ms) then return end
-    self.routeLaps[#self.routeLaps + 1] = {lap_id = lap_id, raw_ms = raw_ms, session = self.session}
+    self.routeLaps[#self.routeLaps + 1] = {lap_id = lap_id, raw_ms = raw_ms, session = self.session,
+      lap_count = isint(lap_count) and lap_count or nil}
     while #self.routeLaps > 8 do table.remove(self.routeLaps, 1) end
     match()
+  end
+
+  -- Native result for a route lap (same shape as field_v2:native_result).
+  function o:result_for(lap_id)
+    for _, d in ipairs(self.drafts) do
+      if d.rt_lap_id == lap_id or d.rt_conflict == lap_id then
+        if not isint(d.time_ms) then return {state = 'unavailable', lap_count = d.lap_count} end
+        return {state = 'confirmed', raw_ms = d.time_ms, lap_count = d.lap_count, valid = d.valid}
+      end
+    end
+    for _, r in ipairs(self.routeLaps) do
+      if r.lap_id == lap_id then
+        if not r.lap_count then return {state = 'unavailable'} end
+        if r.session ~= self.session then return {state = 'unavailable'} end
+        return {state = 'pending', lap_count = r.lap_count}
+      end
+    end
+    return {state = 'unavailable'}
   end
 
   function o:observe(car, dt)

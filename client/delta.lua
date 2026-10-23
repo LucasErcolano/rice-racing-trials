@@ -1,7 +1,11 @@
--- Rice Trials delta bar: current lap vs the best FINAL lap (raw + penalties), like AC's own meter.
+-- Rice Trials delta bar: current lap DRIVING time vs a reference lap, like AC's own meter.
 --
--- A lap is recorded as `value_ms` (raw elapsed + penalties so far) at N evenly spaced progress
--- points. The best lap's trace is the reference; delta = value now - reference at the same progress.
+-- A lap is recorded as `value_ms` (driving time, penalties NOT included) at N evenly spaced
+-- progress points. Penalties are separate events shown on their own line: adding them to the
+-- trace would turn a cone into a fake loss of pace at one point of the lap.
+-- delta = value now - reference at the same progress. The reference is chosen by the app
+-- (RiceTrials refreshResults): a closed trace is rescaled to AC's confirmed time of that same
+-- lap with adopt(), so live and reference share AC's physics time base.
 -- Progress comes from car.splinePosition (relative to where the timed lap started). When the game
 -- does not provide it, progress is the distance driven: the trace is stored by metres and
 -- normalised by the lap's total distance when the lap ends (the reference then also drives the
@@ -91,15 +95,15 @@ function M.new(opts)
     return values
   end
 
-  -- final_ms: the lap's final time. Returns true when this lap became the reference.
-  function d:finish(final_ms)
+  -- Closes the lap in progress WITHOUT adopting it: returns a candidate trace (or nil when the
+  -- lap is incomplete/invalid). final_ms is the value of the trace at the line.
+  function d:close(final_ms)
     local c = self.cur
     self.cur = nil
-    if not (c and c.valid and finite(final_ms) and final_ms > 0) then return false end
-    if self.ref and final_ms >= self.ref.final then return false end
+    if not (c and c.valid and finite(final_ms) and final_ms > 0) then return nil end
     local values
     if c.mode == 'spline' then
-      if c.last < n * MIN_DONE then return false end
+      if c.last < n * MIN_DONE then return nil end
       for i = c.last + 1, n do
         c.values[i] = c.lastValue + (final_ms - c.lastValue) * (i - c.last) / math.max(1, n - c.last)
       end
@@ -108,11 +112,38 @@ function M.new(opts)
     else
       values = resample(c, final_ms)
     end
-    if not values then return false end
-    self.ref = {values = values, final = final_ms, dist = c.dist > 0 and c.dist or nil}
+    if not values then return nil end
+    return {values = values, final = final_ms, dist = c.dist > 0 and c.dist or nil}
+  end
+
+  -- Installs a closed candidate as the reference. confirmed_ms (optional) is the certified
+  -- time of the same lap: the trace is rescaled so it ends exactly there, keeping one time
+  -- base. rank_ms (optional, default the trace end) decides whether it beats the reference;
+  -- force installs it regardless (the caller already chose the reference lap).
+  -- Returns true when the reference changed.
+  function d:adopt(candidate, confirmed_ms, rank_ms, force)
+    if type(candidate) ~= 'table' or type(candidate.values) ~= 'table' or
+        not (finite(candidate.final) and candidate.final > 0) then return false end
+    local final = finite(confirmed_ms) and confirmed_ms > 0 and confirmed_ms or candidate.final
+    local rank = finite(rank_ms) and rank_ms or final
+    if self.ref and not force and rank >= self.ref.rank then return false end
+    local k, values = final / candidate.final, {[0] = 0}
+    for i = 1, n do values[i] = (candidate.values[i] or candidate.final) * k end
+    values[n] = final
+    self.ref = {values = values, final = final, rank = rank, dist = candidate.dist}
     return true
   end
 
+  -- Drops the reference (its lap was contradicted or is gone): "--", never a stale delta.
+  function d:clear() self.ref = nil end
+
+  -- Legacy single step: close and adopt with the trace's own end as the rank.
+  -- Returns true when this lap became the reference.
+  function d:finish(final_ms)
+    return self:adopt(self:close(final_ms))
+  end
+
+  function d:reference_ms() return self.ref and self.ref.final or nil end
   function d:has_reference() return self.ref ~= nil end
   function d:source() return self.cur and self.cur.via or nil end
   return d

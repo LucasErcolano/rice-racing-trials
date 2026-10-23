@@ -116,17 +116,35 @@ class Native(unittest.TestCase):
     def test_reconciled_with_route_lap_once(self):
         lua, o, ev = self.runtime({})
         o.observe(o, self.car(lua, 0), 0.1); o.observe(o, self.car(lua, 1, 61000), 0.1)
-        o.note_route_lap(o, 'L1', 60400)
+        o.note_route_lap(o, 'L1', 60400, 1)
         self.assertEqual(o.last(o).rt_lap_id, 'L1')
         self.assertEqual(o.stats(o).unmatched, 0)
-        o.note_route_lap(o, 'L2', 60500)          # nothing left to pair with
+        r = o.result_for(o, 'L1')
+        self.assertEqual((r.state, r.raw_ms, r.lap_count), ('confirmed', 61000, 1))
+        o.note_route_lap(o, 'L2', 60500, 1)       # same counter already used: nothing to pair
         self.assertEqual(o.stats(o).count, 1)
+        self.assertEqual(o.result_for(o, 'L2').state, 'pending')
 
-    def test_far_times_are_not_reconciled(self):
-        lua, o, _ = self.runtime({})
+    def test_identity_pairs_the_n14_divergence_that_2s_tolerance_rejected(self):
+        # Real VM lap n-14: AC 385014 ms, route 379292 ms (5722 ms of render stalls).
+        lua, o, ev = self.runtime({})
+        o.observe(o, self.car(lua, 13), 0.1); o.observe(o, self.car(lua, 14, 385014), 0.1)
+        o.note_route_lap(o, 'L14', 379292, 14)
+        self.assertEqual((o.last(o).rt_lap_id, o.last(o).rt_divergence_ms), ('L14', 5722))
+        self.assertIn('native_reconciled', ev)
+
+    def test_far_or_unidentified_times_are_not_reconciled(self):
+        lua, o, ev = self.runtime({})
         o.observe(o, self.car(lua, 0), 0.1); o.observe(o, self.car(lua, 1, 61000), 0.1)
-        o.note_route_lap(o, 'L1', 45000)
+        o.note_route_lap(o, 'L0', 61000, None)    # no native phase: never paired, even if equal
         self.assertEqual(o.stats(o).unmatched, 1)
+        self.assertEqual(o.result_for(o, 'L0').state, 'unavailable')
+        o.note_route_lap(o, 'L1', 61000, 2)       # another counter: identity wins over time
+        self.assertEqual(o.stats(o).unmatched, 1)
+        o.note_route_lap(o, 'L9', 30000, 1)       # same counter, 31 s apart: conflict, not pair
+        self.assertEqual(o.stats(o).unmatched, 1)
+        self.assertEqual(o.last(o).rt_conflict, 'L9')
+        self.assertIn('native_conflict', ev)
 
 
 class InApp(unittest.TestCase):

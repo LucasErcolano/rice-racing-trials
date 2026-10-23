@@ -181,8 +181,13 @@ function M.new(opts)
     end
     if changed then save('penalty') end
   end
-  function o:begin_lap(previous)
-    if n.ref==nil or states.native=='corrupt' then
+  -- target (optional): AC lap counter value that will close the lap being started, derived by
+  -- the caller from the native line phase (lap_sync.lua). Without it the next counter after the
+  -- latest reference is used, which is wrong when the route line is crossed a frame before AC's.
+  -- target false: the caller knows the native identity is unknown (route and AC lines out of
+  -- phase): reserve a standalone lap that the server keeps under review.
+  function o:begin_lap(previous,target_lap_count)
+    if n.ref==nil or states.native=='corrupt' or target_lap_count==false then
       local ctx=opts.context()
       if not validContext(ctx) or states.penalty=='corrupt' then return nil end
       p.seq=p.seq+1
@@ -194,7 +199,9 @@ function M.new(opts)
     end
     local target=n.ref+1
     local prev=previous and find(previous)
-    if prev and prev.epoch==n.epoch then target=math.max(target,prev.lap_count+1) end
+    if integer(target_lap_count) and target_lap_count>n.ref and target_lap_count<=n.ref+2 then
+      target=target_lap_count
+    elseif prev and prev.epoch==n.epoch then target=math.max(target,prev.lap_count+1) end
     local r=slot(target)
     if not validContext(r.context) or not save('native') then return nil end
     return r.id
@@ -215,6 +222,25 @@ function M.new(opts)
     end
     p.records[#p.records+1]={id=id,route_token=routeToken,raw_ms=raw,context=clone(r.context),snapshot=snapshot,standalone=standalone}
     local ok=save('penalty'); resolve(); return ok
+  end
+  -- Native result bound to a route token, for the driver's windows. Mirrors what the server
+  -- will receive: confirmed only when the SAME slot captured AC's time; a token turned
+  -- standalone (identity_ambiguous / native_capture_missing) is never confirmed.
+  function o:native_result(id)
+    if type(id)~='string' then return {state='unavailable'} end
+    for _,e in ipairs(p.records) do
+      if (e.id==id or e.route_token==id) and e.standalone then return {state='ambiguous'} end
+    end
+    local r=find(id)
+    if not r or r.lap_count==nil then return {state='unavailable'} end
+    if integer(r.raw_ms) and r.raw_ms>0 then
+      return {state='confirmed',raw_ms=r.raw_ms,lap_count=r.lap_count,epoch=r.epoch,valid=r.native_valid}
+    end
+    if r.epoch~=n.epoch or r.capture_state=='native_time_unavailable' or r.capture_state=='native_counter_gap'
+        or r.capture_state=='native_capture_interrupted' then
+      return {state='unavailable',lap_count=r.lap_count,reason=r.capture_state}
+    end
+    return {state='pending',lap_count=r.lap_count}
   end
   function o:session_start(reason)
     local pending=n.pending_completion and find(n.pending_completion)
